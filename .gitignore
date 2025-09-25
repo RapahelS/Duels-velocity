@@ -1,0 +1,33 @@
+# Build artifacts
+.gradle/
+build/
+out/
+bin/
+target/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Dependency directories
+node_modules/

@@ -87,6 +87,11 @@ subprojects {
             url = 'https://repo.artillex-studios.com/releases/'
         }
 
+        maven {
+            name = 'velocity'
+            url = 'https://repo.papermc.io/repository/maven-public/'
+        }
+
         flatDir {
             dirs "$rootDir/libs/"
         }

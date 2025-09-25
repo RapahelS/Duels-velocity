@@ -1,0 +1,45 @@
+import org.apache.tools.ant.filters.ReplaceTokens
+
+processResources {
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+
+    from(sourceSets.main.resources.srcDirs) {
+        include '**/*.json'
+        filter(ReplaceTokens, tokens: [VERSION: project.version])
+    }
+}
+
+dependencies {
+    compileOnly 'org.jetbrains:annotations-java5:24.1.0'
+    compileOnly 'org.projectlombok:lombok:1.18.38'
+    annotationProcessor 'org.projectlombok:lombok:1.18.38'
+    compileOnly 'com.velocitypowered:velocity-api:3.3.0-SNAPSHOT'
+    annotationProcessor 'com.velocitypowered:velocity-api:3.3.0-SNAPSHOT'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.19.2'
+    implementation 'org.json:json:20250517'
+    implementation 'org.redisson:redisson:3.25.2'
+    implementation project(':duels-common')
+}
+
+shadowJar {
+    getDestinationDirectory().set(file("$rootDir/out/"))
+
+    final String archiveName = project.name + '-' + project.version + '.jar'
+    getArchiveFileName().set(archiveName)
+
+    dependencies {
+        include(project(':duels-common'))
+        include(dependency('com.fasterxml.jackson.core:.*'))
+        include(dependency('org.json:.*'))
+        include(dependency('org.redisson:.*'))
+    }
+
+    final String group = project.group.toString() + "." + parent.name.toLowerCase() + ".shaded."
+    relocate 'com.fasterxml.jackson', 'com.meteordevelopments.duels.shaded.jackson'
+    relocate 'org.redisson', group + 'redisson'
+}
+
+// To build Duels velocity plugin jar, run './gradlew :duels-velocity:clean :duels-velocity:build'.
+build {
+    dependsOn(shadowJar)
+}

@@ -283,6 +283,22 @@ public class Config extends AbstractConfiguration<DuelsPlugin> {
     @Getter
     private String noOpponent;
 
+    // Network configuration for cross-server support
+    @Getter
+    private boolean networkEnabled;
+    @Getter
+    private String networkServerName;
+    @Getter
+    private String networkRedisHost;
+    @Getter
+    private int networkRedisPort;
+    @Getter
+    private String networkRedisPassword;
+    @Getter
+    private int networkRedisDatabase;
+    @Getter
+    private boolean networkDebugMode;
+
     private final Multimap<String, MessageSound> messageToSounds = HashMultimap.create();
 
     public Config(final DuelsPlugin plugin) {
@@ -442,6 +458,15 @@ public class Config extends AbstractConfiguration<DuelsPlugin> {
         cdDuelTitles = configuration.getStringList("countdown.duel.titles");
         cdPartyDuelMessages = configuration.getStringList("countdown.party-duel.messages");
         cdPartyDuelTitles = configuration.getStringList("countdown.party-duel.titles");
+
+        // Load network configuration
+        networkEnabled = configuration.getBoolean("network.enabled", false);
+        networkServerName = configuration.getString("network.server-name", "server1");
+        networkRedisHost = configuration.getString("network.redis.host", "localhost");
+        networkRedisPort = configuration.getInt("network.redis.port", 6379);
+        networkRedisPassword = configuration.getString("network.redis.password", "");
+        networkRedisDatabase = configuration.getInt("network.redis.database", 0);
+        networkDebugMode = configuration.getBoolean("network.debug-mode", false);
 
         final ConfigurationSection sounds = configuration.getConfigurationSection("sounds");
 
