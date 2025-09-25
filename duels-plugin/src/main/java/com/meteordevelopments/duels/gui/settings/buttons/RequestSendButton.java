@@ -6,6 +6,7 @@ import com.meteordevelopments.duels.party.Party;
 import com.meteordevelopments.duels.setting.Settings;
 import com.meteordevelopments.duels.util.compat.Items;
 import com.meteordevelopments.duels.util.inventory.ItemBuilder;
+import com.meteordevelopments.duels.network.NetworkHandler;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -19,20 +20,15 @@ public class RequestSendButton extends BaseButton {
     public void onClick(final Player player) {
         final Settings settings = settingManager.getSafely(player);
 
-        if (settings.getTarget() == null) {
+        final String targetName = settings.getTargetName();
+
+        if (targetName == null) {
             settings.reset();
             player.closeInventory();
             return;
         }
 
-        final Player target = Bukkit.getPlayer(settings.getTarget());
-
-        if (target == null) {
-            settings.reset();
-            player.closeInventory();
-            lang.sendMessage(player, "ERROR.player.no-longer-online");
-            return;
-        }
+        final Player target = settings.getTarget() != null ? Bukkit.getPlayer(settings.getTarget()) : null;
 
         if (!settings.isOwnInventory() && settings.getKit() == null) {
             player.closeInventory();
@@ -50,6 +46,22 @@ public class RequestSendButton extends BaseButton {
         }
 
         player.closeInventory();
-        requestManager.send(player, target, settings);
+
+        if (target != null) {
+            requestManager.send(player, target, settings);
+            return;
+        }
+
+        final NetworkHandler networkHandler = plugin.getNetworkHandler();
+        if (networkHandler == null || !networkHandler.isNetworkEnabled()) {
+            settings.reset();
+            lang.sendMessage(player, "ERROR.network.unavailable");
+            return;
+        }
+
+        boolean initiated = networkHandler.sendCrossServerChallenge(player, targetName, settings);
+        if (!initiated) {
+            settings.reset();
+        }
     }
 }

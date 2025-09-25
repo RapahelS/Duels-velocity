@@ -1,12 +1,13 @@
 package com.meteordevelopments.duels.setting;
 
-import com.meteordevelopments.duels.party.Party;
-import lombok.Getter;
-import lombok.Setter;
 import com.meteordevelopments.duels.DuelsPlugin;
 import com.meteordevelopments.duels.arena.ArenaImpl;
 import com.meteordevelopments.duels.gui.settings.SettingsGui;
 import com.meteordevelopments.duels.kit.KitImpl;
+import com.meteordevelopments.duels.party.Party;
+import lombok.Getter;
+import lombok.Setter;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
@@ -21,6 +22,9 @@ public class Settings {
 
     @Getter
     private UUID target;
+    @Getter
+    @Setter
+    private String remoteTargetName;
     @Getter
     private KitImpl kit;
     @Getter
@@ -56,6 +60,7 @@ public class Settings {
 
     public void reset() {
         target = null;
+        remoteTargetName = null;
         senderParty = null;
         targetParty = null;
         kit = null;
@@ -67,11 +72,18 @@ public class Settings {
     }
 
     public void setTarget(final Player target) {
+        if (target == null) {
+            this.target = null;
+            this.remoteTargetName = null;
+            return;
+        }
+
         if (this.target != null && !this.target.equals(target.getUniqueId())) {
             reset();
         }
 
         this.target = target.getUniqueId();
+        this.remoteTargetName = target.getName();
     }
 
     public void updateGui(final Player player) {
@@ -120,6 +132,24 @@ public class Settings {
         return senderParty != null && targetParty != null;
     }
 
+    public void setRemoteTargetName(final String targetName) {
+        this.target = null;
+        this.remoteTargetName = targetName;
+    }
+
+    public String getTargetName() {
+        if (remoteTargetName != null) {
+            return remoteTargetName;
+        }
+
+        if (target == null) {
+            return null;
+        }
+
+        Player cached = Bukkit.getPlayer(target);
+        return cached != null ? cached.getName() : null;
+    }
+
     public void setKit(final KitImpl kit) {
         this.kit = kit;
         this.ownInventory = false;
@@ -137,6 +167,7 @@ public class Settings {
     public Settings lightCopy() {
         final Settings copy = new Settings(plugin);
         copy.target = target;
+    copy.remoteTargetName = remoteTargetName;
         copy.senderParty = senderParty;
         copy.targetParty = targetParty;
         copy.kit = kit;

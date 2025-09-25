@@ -18,6 +18,7 @@ GENERAL:
   not-selected: 'Not Selected'
   random: 'Random'
   none: 'none'
+  unknown: 'Unknown'
   kit-selector: 'Kit Selector'
   arena-selector: 'Arena Selector'
   item-betting: 'Item Betting'
@@ -35,7 +36,9 @@ ERROR:
   player:
     not-found: '{PREFIX} &c%name% is not online.'
     no-longer-online: '{PREFIX} &cThat player is no longer online.'
-    on-different-server: '{PREFIX} &c%name% is on a different server (%server%). Cross-server duels are not yet supported.'
+  on-different-server: '{PREFIX} &7%name% is on another server (%server%). Preparing a cross-server duel request...'
+  network:
+    unavailable: '{PREFIX} &cCross-server features are currently unavailable.'
   arena:
     not-found: '{PREFIX} &cNo arena exists with the name ''%name%''.'
     already-exists: '{PREFIX} &cAn arena named ''%name%'' already exists.'
@@ -59,6 +62,9 @@ ERROR:
     already-in-match:
       sender: '{PREFIX} &cYou cannot do this while in a duel.'
       target: '{PREFIX} &c%name% is already in a duel.'
+    cross-server-party: '{PREFIX} &cCross-server duels do not support parties yet.'
+    cross-server-request-failed: '{PREFIX} &cFailed to send the cross-server duel request. Please try again.'
+    cross-server-timeout: '{PREFIX} &cThe cross-server duel request timed out.'
     mode-unselected: '{PREFIX} &cYou must either choose a kit or enable own inventory mode.'
     mode-fixed: '{PREFIX} &cYou are not allowed to disable own inventory mode.'
     already-spectating:

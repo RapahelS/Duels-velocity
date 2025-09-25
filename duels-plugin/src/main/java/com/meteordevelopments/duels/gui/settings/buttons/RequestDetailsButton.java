@@ -17,9 +17,18 @@ public class RequestDetailsButton extends BaseButton {
     @Override
     public void update(final Player player) {
         final Settings settings = settingManager.getSafely(player);
-        final Player target = Bukkit.getPlayer(settings.getTarget());
+        Player target = settings.getTarget() != null ? Bukkit.getPlayer(settings.getTarget()) : null;
+        final String opponentName = target != null ? target.getName() : settings.getTargetName();
 
-        if (target == null) {
+        if (opponentName == null) {
+            settings.reset();
+            player.closeInventory();
+            lang.sendMessage(player, "ERROR.player.no-longer-online");
+            return;
+        }
+
+        if (target == null && settings.getTarget() != null) {
+            // Local target went offline mid-selection
             settings.reset();
             player.closeInventory();
             lang.sendMessage(player, "ERROR.player.no-longer-online");
@@ -27,7 +36,7 @@ public class RequestDetailsButton extends BaseButton {
         }
 
         final String lore = lang.getMessage("GUI.settings.buttons.details.lore",
-                "opponent", target.getName(),
+                "opponent", opponentName,
                 "kit", settings.getKit() != null ? settings.getKit().getName() : lang.getMessage("GENERAL.not-selected"),
                 "own_inventory", settings.isOwnInventory() ? lang.getMessage("GENERAL.enabled") : lang.getMessage("GENERAL.disabled"),
                 "arena", settings.getArena() != null ? settings.getArena().getName() : lang.getMessage("GENERAL.random"),

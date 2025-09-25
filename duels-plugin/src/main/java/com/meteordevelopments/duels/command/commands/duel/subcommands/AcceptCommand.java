@@ -4,11 +4,11 @@ import com.meteordevelopments.duels.DuelsPlugin;
 import com.meteordevelopments.duels.api.event.request.RequestAcceptEvent;
 import com.meteordevelopments.duels.command.BaseCommand;
 import com.meteordevelopments.duels.hook.hooks.worldguard.WorldGuardHook;
+import com.meteordevelopments.duels.network.NetworkHandler;
 import com.meteordevelopments.duels.party.Party;
 import com.meteordevelopments.duels.request.RequestImpl;
 import com.meteordevelopments.duels.setting.Settings;
 import com.meteordevelopments.duels.util.function.Pair;
-
 import com.meteordevelopments.duels.util.validator.ValidatorUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -19,10 +19,12 @@ import java.util.Collections;
 
 public class AcceptCommand extends BaseCommand {
     private final WorldGuardHook worldGuard;
+    private final NetworkHandler networkHandler;
 
     public AcceptCommand(final DuelsPlugin plugin) {
         super(plugin, "accept", "accept [player]", "Accepts a duel request.", 2, true);
         this.worldGuard = hookManager.getHook(WorldGuardHook.class);
+        this.networkHandler = plugin.getNetworkHandler();
     }
 
     @Override
@@ -39,6 +41,19 @@ public class AcceptCommand extends BaseCommand {
         final Player target = Bukkit.getPlayerExact(args[1]);
 
         if (target == null || !player.canSee(target)) {
+            if (target != null) {
+                lang.sendMessage(sender, "ERROR.player.not-found", "name", args[1]);
+                return;
+            }
+
+            if (networkHandler != null && networkHandler.isNetworkEnabled()) {
+                if (networkHandler.acceptRemoteChallenge(player, args[1])) {
+                    return;
+                }
+                lang.sendMessage(sender, "ERROR.duel.no-request", "name", args[1]);
+                return;
+            }
+
             lang.sendMessage(sender, "ERROR.player.not-found", "name", args[1]);
             return;
         }

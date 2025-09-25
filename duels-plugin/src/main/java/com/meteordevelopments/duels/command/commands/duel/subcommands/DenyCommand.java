@@ -3,6 +3,7 @@ package com.meteordevelopments.duels.command.commands.duel.subcommands;
 import com.meteordevelopments.duels.DuelsPlugin;
 import com.meteordevelopments.duels.api.event.request.RequestDenyEvent;
 import com.meteordevelopments.duels.command.BaseCommand;
+import com.meteordevelopments.duels.network.NetworkHandler;
 import com.meteordevelopments.duels.request.RequestImpl;
 import com.meteordevelopments.duels.util.function.Pair;
 import com.meteordevelopments.duels.util.validator.ValidatorUtil;
@@ -14,9 +15,11 @@ import java.util.Collection;
 import java.util.Collections;
 
 public class DenyCommand extends BaseCommand {
+    private final NetworkHandler networkHandler;
 
     public DenyCommand(final DuelsPlugin plugin) {
         super(plugin, "deny", "deny [player]", "Declines a duel request.", 2, true);
+        this.networkHandler = plugin.getNetworkHandler();
     }
 
     @Override
@@ -25,6 +28,19 @@ public class DenyCommand extends BaseCommand {
         final Player target = Bukkit.getPlayerExact(args[1]);
 
         if (target == null || !player.canSee(target)) {
+            if (target != null) {
+                lang.sendMessage(sender, "ERROR.player.not-found", "name", args[1]);
+                return;
+            }
+
+            if (networkHandler != null && networkHandler.isNetworkEnabled()) {
+                if (networkHandler.denyRemoteChallenge(player, args[1])) {
+                    return;
+                }
+                lang.sendMessage(sender, "ERROR.duel.no-request", "name", args[1]);
+                return;
+            }
+
             lang.sendMessage(sender, "ERROR.player.not-found", "name", args[1]);
             return;
         }

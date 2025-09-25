@@ -7,6 +7,7 @@ import com.meteordevelopments.duels.command.commands.duel.subcommands.*;
 import com.meteordevelopments.duels.hook.hooks.VaultHook;
 import com.meteordevelopments.duels.hook.hooks.worldguard.WorldGuardHook;
 import com.meteordevelopments.duels.kit.KitImpl;
+import com.meteordevelopments.duels.network.NetworkHandler;
 import com.meteordevelopments.duels.party.Party;
 import com.meteordevelopments.duels.setting.Settings;
 import com.meteordevelopments.duels.util.NumberUtil;
@@ -26,6 +27,7 @@ public class DuelCommand extends BaseCommand {
 
     private final WorldGuardHook worldGuard;
     private final VaultHook vault;
+    private final NetworkHandler networkHandler;
 
     public DuelCommand(final DuelsPlugin plugin) {
         super(plugin, "duel", Permissions.DUEL, true);
@@ -40,6 +42,7 @@ public class DuelCommand extends BaseCommand {
         );
         this.worldGuard = hookManager.getHook(WorldGuardHook.class);
         this.vault = hookManager.getHook(VaultHook.class);
+        this.networkHandler = plugin.getNetworkHandler();
     }
 
     @Override
@@ -73,37 +76,48 @@ public class DuelCommand extends BaseCommand {
         }
 
         final Player target = Bukkit.getPlayerExact(args[0]);
+        final boolean remoteTarget = target == null;
 
-        if (target == null) {
-            // Check if network is enabled and try to find player on other servers
-            if (plugin.getNetworkHandler() != null && plugin.getNetworkHandler().isNetworkEnabled()) {
-                plugin.getNetworkHandler().findPlayerServer(args[0]).thenAccept(serverOpt -> {
-                    if (serverOpt.isPresent()) {
-                        lang.sendMessage(sender, "ERROR.player.on-different-server", "name", args[0], "server", serverOpt.get());
-                    } else {
-                        lang.sendMessage(sender, "ERROR.player.not-found", "name", args[0]);
-                    }
-                });
-                return true;
-            } else {
+        if (remoteTarget) {
+            if (networkHandler == null || !networkHandler.isNetworkEnabled()) {
                 lang.sendMessage(sender, "ERROR.player.not-found", "name", args[0]);
+                return true;
+            }
+
+            if (args[0].equalsIgnoreCase(player.getName())) {
+                lang.sendMessage(sender, "ERROR.duel.is-self");
+                return true;
+            }
+
+            if (party != null && party.size() > 1) {
+                lang.sendMessage(sender, "ERROR.duel.cross-server-party");
                 return true;
             }
         }
 
-        final Party targetParty = partyManager.get(target);
-        final Collection<Player> targetPlayers = targetParty == null ? Collections.singleton(target) : targetParty.getOnlineMembers();
-        if (!ValidatorUtil.validate(validatorManager.getDuelTargetValidators(), new Pair<>(player, target), targetParty, targetPlayers)) {
-            return true;
+        if (!remoteTarget) {
+            final Party targetParty = partyManager.get(target);
+            final Collection<Player> targetPlayers = targetParty == null ? Collections.singleton(target) : targetParty.getOnlineMembers();
+            if (!ValidatorUtil.validate(validatorManager.getDuelTargetValidators(), new Pair<>(player, target), targetParty, targetPlayers)) {
+                return true;
+            }
         }
 
         final Settings settings = settingManager.getSafely(player);
         // Reset bet to prevent accidents
         settings.setBet(0);
-        settings.setTarget(target);
         settings.setSenderParty(party);
-        settings.setTargetParty(targetParty);
         settings.clearCache();
+        settings.setTargetParty(null);
+        settings.setRemoteTargetName(null);
+
+        if (remoteTarget) {
+            settings.setRemoteTargetName(args[0]);
+        } else {
+            settings.setTarget(target);
+            settings.setTargetParty(partyManager.get(target));
+        }
+
         players.forEach(all -> {
             settings.setBaseLoc(all);
             settings.setDuelzone(all, worldGuard != null ? worldGuard.findDuelZone(all) : null);
@@ -195,7 +209,13 @@ public class DuelCommand extends BaseCommand {
 
         if (sendRequest) {
             // If all settings were selected via command, send request without opening settings GUI.
-            requestManager.send(player, target, settings);
+            if (remoteTarget) {
+                if (!networkHandler.sendCrossServerChallenge(player, args[0], settings)) {
+                    settings.reset();
+                }
+            } else {
+                requestManager.send(player, target, settings);
+            }
         } else if (config.isOwnInventoryEnabled()) {
             // If own inventory is enabled, prompt request settings GUI.
             settings.openGui(player);

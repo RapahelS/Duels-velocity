@@ -26,6 +26,7 @@ import com.meteordevelopments.duels.queue.QueueManager;
 import com.meteordevelopments.duels.setting.CachedInfo;
 import com.meteordevelopments.duels.setting.Settings;
 import com.meteordevelopments.duels.util.Loadable;
+import com.meteordevelopments.duels.util.TextBuilder;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -40,11 +41,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import net.md_5.bungee.api.chat.ClickEvent;
+import net.md_5.bungee.api.chat.HoverEvent.Action;
 
 /**
  * Handles network communication between Bukkit servers and the Velocity proxy
@@ -80,6 +84,8 @@ public class NetworkHandler implements Loadable {
     private final Map<String, List<NetworkQueue>> networkQueues = new ConcurrentHashMap<>();
     private final Map<UUID, PendingLocalMatch> pendingLocalMatches = new ConcurrentHashMap<>();
     private final Map<UUID, PendingMatchStart> pendingMatchStarts = new ConcurrentHashMap<>();
+    private final Map<UUID, RemoteChallenge> incomingChallengesById = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, RemoteChallenge>> incomingChallengesByTarget = new ConcurrentHashMap<>();
 
     private volatile long lastArenaEventId = 0L;
     private volatile long lastQueueEventId = 0L;
@@ -138,6 +144,8 @@ public class NetworkHandler implements Loadable {
         networkQueues.clear();
         pendingLocalMatches.clear();
         pendingMatchStarts.clear();
+    incomingChallengesById.clear();
+    incomingChallengesByTarget.clear();
 
         networkEnabled = false;
 
@@ -184,6 +192,9 @@ public class NetworkHandler implements Loadable {
 
         scheduledTasks.add(plugin.doAsyncRepeat(() -> cleanupOldEvents(Duration.ofMinutes(10)),
                 TICKS_PER_SECOND * 300, TICKS_PER_SECOND * 300));
+
+    scheduledTasks.add(plugin.doAsyncRepeat(this::cleanupExpiredChallenges,
+        TICKS_PER_SECOND * 60, TICKS_PER_SECOND * 120));
 
     scheduledTasks.add(plugin.doSyncRepeat(this::processPendingMatches,
         TICKS_PER_SECOND, TICKS_PER_SECOND));
@@ -374,10 +385,600 @@ public class NetworkHandler implements Loadable {
     private void handleDuelRequestEvents(Collection<NetworkEvent> events) {
         for (NetworkEvent event : events) {
             lastDuelRequestEventId = Math.max(lastDuelRequestEventId, event.getId());
+            ObjectNode payload = event.payloadAsObjectNode(mapper);
+            String action = payload.path("action").asText("");
+
+            if ("challenge".equalsIgnoreCase(action)) {
+                handleIncomingChallenge(payload);
+                continue;
+            }
+
+            if ("challenge-accept".equalsIgnoreCase(action)) {
+                handleChallengeAccept(payload);
+                continue;
+            }
+
+            if ("challenge-deny".equalsIgnoreCase(action)) {
+                handleChallengeDeny(payload);
+                continue;
+            }
+
+            if ("challenge-failed".equalsIgnoreCase(action)) {
+                handleChallengeFailed(payload);
+                continue;
+            }
+
             if (config.isNetworkDebugMode()) {
-                plugin.getLogger().info("Received duel request event: " + event.getPayload());
+                plugin.getLogger().info("Received duel request event: " + payload);
             }
         }
+    }
+
+    private void handleIncomingChallenge(ObjectNode payload) {
+        if (!networkEnabled) {
+            return;
+        }
+
+        String targetServer = payload.path("targetServer").asText("");
+        if (!serverName.equalsIgnoreCase(targetServer)) {
+            return;
+        }
+
+        UUID requestId = parseUuid(payload.path("requestId").asText(null));
+        if (requestId == null) {
+            return;
+        }
+
+        String targetName = payload.path("targetName").asText(null);
+        if (targetName == null || targetName.isEmpty()) {
+            return;
+        }
+
+        String challengerName = payload.path("challengerName").asText("Unknown");
+        UUID challengerId = parseUuid(payload.path("challengerId").asText(null));
+        String hostServer = payload.path("hostServer").asText(serverName);
+        String sourceServer = payload.path("sourceServer").asText(hostServer);
+        String kitName = payload.hasNonNull("kitName") ? payload.get("kitName").asText() : null;
+        String arenaName = payload.hasNonNull("arenaName") ? payload.get("arenaName").asText() : null;
+        boolean ownInventory = payload.path("ownInventory").asBoolean(false);
+        boolean itemBetting = payload.path("itemBetting").asBoolean(false);
+        int bet = payload.path("bet").asInt(0);
+
+        plugin.doSync(() -> {
+            Player target = Bukkit.getPlayerExact(targetName);
+            if (target == null || !target.isOnline()) {
+                notifyChallengeFailure(requestId, hostServer, sourceServer, targetServer, "offline", challengerName, targetName);
+                return;
+            }
+
+            RemoteChallenge challenge = new RemoteChallenge(requestId, target.getName(), challengerName, challengerId,
+                    hostServer, sourceServer, targetServer, kitName, arenaName, ownInventory, itemBetting, bet,
+                    System.currentTimeMillis());
+
+            storeRemoteChallenge(challenge);
+            sendRemoteChallengeMessages(target, challenge);
+        });
+    }
+
+    private void handleChallengeAccept(ObjectNode payload) {
+        if (!networkEnabled) {
+            return;
+        }
+
+        String hostServer = payload.path("hostServer").asText("");
+        if (!serverName.equalsIgnoreCase(hostServer)) {
+            return;
+        }
+
+        UUID requestId = parseUuid(payload.path("requestId").asText(null));
+        if (requestId == null) {
+            return;
+        }
+
+        PendingLocalMatch localMatch = pendingLocalMatches.get(requestId);
+        if (localMatch == null) {
+            return;
+        }
+
+        plugin.doSync(() -> {
+            Player challenger = localMatch.localPlayer();
+            if (challenger == null || !challenger.isOnline()) {
+                pendingLocalMatches.remove(requestId);
+                notifyChallengeFailure(requestId, hostServer, payload.path("sourceServer").asText(null),
+                        payload.path("targetServer").asText(null), "challenger-offline",
+                        payload.path("challengerName").asText(null), payload.path("targetPlayerName").asText(null));
+                return;
+            }
+
+            Settings settingsCopy = localMatch.copySettings();
+            String kitDisplay = settingsCopy.getKit() != null ? settingsCopy.getKit().getName() : lang.getMessage("GENERAL.not-selected");
+            String arenaDisplay = settingsCopy.getArena() != null ? settingsCopy.getArena().getName() : lang.getMessage("GENERAL.random");
+            double betDisplay = settingsCopy.getBet();
+            String itemBettingDisplay = settingsCopy.isItemBetting() ? lang.getMessage("GENERAL.enabled") : lang.getMessage("GENERAL.disabled");
+
+            lang.sendMessage(challenger, "COMMAND.duel.request.accept.sender",
+                    "name", payload.path("targetPlayerName").asText("Unknown"),
+                    "kit", kitDisplay,
+                    "arena", arenaDisplay,
+                    "bet_amount", betDisplay,
+                    "item_betting", itemBettingDisplay);
+
+            forwardToProxy(localMatch, payload);
+        });
+    }
+
+    private void handleChallengeDeny(ObjectNode payload) {
+        if (!networkEnabled) {
+            return;
+        }
+
+        String hostServer = payload.path("hostServer").asText("");
+        if (!serverName.equalsIgnoreCase(hostServer)) {
+            return;
+        }
+
+        UUID requestId = parseUuid(payload.path("requestId").asText(null));
+        if (requestId == null) {
+            return;
+        }
+
+        PendingLocalMatch localMatch = pendingLocalMatches.remove(requestId);
+        if (localMatch == null) {
+            return;
+        }
+
+        plugin.doSync(() -> {
+            Player challenger = localMatch.localPlayer();
+            if (challenger != null && challenger.isOnline()) {
+                lang.sendMessage(challenger, "COMMAND.duel.request.deny.sender",
+                        "name", payload.path("targetPlayerName").asText("Unknown"));
+            }
+            restoreLocalPlayer(localMatch);
+        });
+    }
+
+    private void handleChallengeFailed(ObjectNode payload) {
+        if (!networkEnabled) {
+            return;
+        }
+
+        String hostServer = payload.path("hostServer").asText("");
+        if (!serverName.equalsIgnoreCase(hostServer)) {
+            return;
+        }
+
+        UUID requestId = parseUuid(payload.path("requestId").asText(null));
+        if (requestId == null) {
+            return;
+        }
+
+        PendingLocalMatch localMatch = pendingLocalMatches.remove(requestId);
+        if (localMatch == null) {
+            return;
+        }
+
+        String reason = payload.path("reason").asText("unknown");
+        String targetName = payload.path("targetPlayerName").asText("Unknown");
+
+        plugin.doSync(() -> {
+            Player challenger = localMatch.localPlayer();
+            if (challenger != null && challenger.isOnline()) {
+                switch (reason.toLowerCase(Locale.ROOT)) {
+                    case "offline" -> lang.sendMessage(challenger, "ERROR.player.no-longer-online", "name", targetName);
+                    case "expired" -> lang.sendMessage(challenger, "ERROR.duel.cross-server-timeout");
+                    case "denied" -> lang.sendMessage(challenger, "COMMAND.duel.request.deny.sender", "name", targetName);
+                    default -> lang.sendMessage(challenger, "ERROR.duel.cross-server-request-failed");
+                }
+            }
+            restoreLocalPlayer(localMatch);
+        });
+    }
+
+    private void storeRemoteChallenge(RemoteChallenge challenge) {
+        incomingChallengesById.put(challenge.requestId(), challenge);
+        incomingChallengesByTarget
+                .computeIfAbsent(challenge.targetKey(), key -> new ConcurrentHashMap<>())
+                .put(challenge.challengerKey(), challenge);
+    }
+
+    private RemoteChallenge getRemoteChallenge(String targetName, String challengerName) {
+        if (targetName == null || challengerName == null) {
+            return null;
+        }
+
+        Map<String, RemoteChallenge> map = incomingChallengesByTarget.get(targetName.toLowerCase(Locale.ROOT));
+        if (map == null) {
+            return null;
+        }
+
+        RemoteChallenge challenge = map.get(challengerName.toLowerCase(Locale.ROOT));
+        if (challenge == null) {
+            return null;
+        }
+
+        if (!incomingChallengesById.containsKey(challenge.requestId())) {
+            map.remove(challenge.challengerKey());
+            return null;
+        }
+
+        return challenge;
+    }
+
+    private void removeRemoteChallenge(RemoteChallenge challenge) {
+        incomingChallengesById.remove(challenge.requestId());
+
+        Map<String, RemoteChallenge> map = incomingChallengesByTarget.get(challenge.targetKey());
+        if (map != null) {
+            map.remove(challenge.challengerKey());
+            if (map.isEmpty()) {
+                incomingChallengesByTarget.remove(challenge.targetKey());
+            }
+        }
+    }
+
+    private List<RemoteChallenge> removeChallengesForTarget(String targetName) {
+        if (targetName == null) {
+            return Collections.emptyList();
+        }
+
+        Map<String, RemoteChallenge> map = incomingChallengesByTarget.remove(targetName.toLowerCase(Locale.ROOT));
+        if (map == null) {
+            return Collections.emptyList();
+        }
+
+        List<RemoteChallenge> removed = new ArrayList<>(map.values());
+        removed.forEach(challenge -> incomingChallengesById.remove(challenge.requestId()));
+        return removed;
+    }
+
+    private void sendRemoteChallengeMessages(Player target, RemoteChallenge challenge) {
+        String kit = challenge.kitName() != null ? challenge.kitName() : lang.getMessage("GENERAL.not-selected");
+        String ownInventory = challenge.ownInventory() ? lang.getMessage("GENERAL.enabled") : lang.getMessage("GENERAL.disabled");
+        String arena = challenge.arenaName() != null ? challenge.arenaName() : lang.getMessage("GENERAL.random");
+        int bet = challenge.bet();
+        String itemBetting = challenge.itemBetting() ? lang.getMessage("GENERAL.enabled") : lang.getMessage("GENERAL.disabled");
+
+        lang.sendMessage(target, "COMMAND.duel.request.send.receiver",
+                "name", challenge.challengerName(),
+                "kit", kit,
+                "own_inventory", ownInventory,
+                "arena", arena,
+                "bet_amount", bet,
+                "item_betting", itemBetting);
+
+        TextBuilder
+                .of(lang.getMessage("COMMAND.duel.request.send.clickable-text.info.text"),
+                        null, null,
+                        Action.SHOW_TEXT, lang.getMessage("COMMAND.duel.request.send.clickable-text.info.hover-text"))
+                .add(lang.getMessage("COMMAND.duel.request.send.clickable-text.accept.text"),
+                        ClickEvent.Action.RUN_COMMAND, "/duel accept " + challenge.challengerName(),
+                        Action.SHOW_TEXT, lang.getMessage("COMMAND.duel.request.send.clickable-text.accept.hover-text"))
+                .add(lang.getMessage("COMMAND.duel.request.send.clickable-text.deny.text"),
+                        ClickEvent.Action.RUN_COMMAND, "/duel deny " + challenge.challengerName(),
+                        Action.SHOW_TEXT, lang.getMessage("COMMAND.duel.request.send.clickable-text.deny.hover-text"))
+                .send(Collections.singleton(target));
+    }
+
+    private void forwardToProxy(PendingLocalMatch localMatch, ObjectNode responsePayload) {
+        if (!isDatabaseReady()) {
+            return;
+        }
+
+        UUID requestId = localMatch.requestId();
+        Player challenger = localMatch.localPlayer();
+
+        ObjectNode forward = mapper.createObjectNode();
+        forward.put("requestId", requestId.toString());
+        forward.put("hostServer", serverName);
+
+        String remoteServer = responsePayload.path("targetServer").asText(serverName);
+        forward.put("remoteServer", remoteServer);
+
+        if (responsePayload.hasNonNull("kitName")) {
+            forward.put("kitName", responsePayload.get("kitName").asText());
+        } else if (localMatch.kitName() != null) {
+            forward.put("kitName", localMatch.kitName());
+        } else {
+            forward.putNull("kitName");
+        }
+
+        forward.put("bet", responsePayload.path("bet").asInt(localMatch.bet()));
+        forward.put("timestamp", System.currentTimeMillis());
+
+        ObjectNode localNode = forward.putObject("local");
+        if (challenger != null) {
+            localNode.put("playerId", challenger.getUniqueId().toString());
+            localNode.put("playerName", challenger.getName());
+        } else if (localMatch.localPlayerId() != null) {
+            localNode.put("playerId", localMatch.localPlayerId().toString());
+            localNode.put("playerName", lang.getMessage("GENERAL.none"));
+        }
+        localNode.put("serverName", serverName);
+
+        ObjectNode remoteNode = forward.putObject("remote");
+        String remotePlayerId = responsePayload.path("targetPlayerId").asText(null);
+        if (remotePlayerId != null) {
+            remoteNode.put("playerId", remotePlayerId);
+        }
+        remoteNode.put("playerName", responsePayload.path("targetPlayerName").asText("Unknown"));
+        remoteNode.put("serverName", remoteServer);
+
+        databaseManager.publishEvent(CHANNEL_DUEL_REQUEST, forward)
+                .exceptionally(throwable -> {
+                    plugin.warn("Failed to forward cross-server duel request: " + throwable.getMessage());
+                    pendingLocalMatches.remove(requestId);
+                    if (challenger != null && challenger.isOnline()) {
+                        plugin.doSync(() -> lang.sendMessage(challenger, "ERROR.duel.cross-server-request-failed"));
+                    }
+                    return null;
+                });
+    }
+
+    private void notifyChallengeFailure(UUID requestId, String hostServer, String sourceServer,
+                                        String targetServer, String reason, String challengerName,
+                                        String targetName) {
+        if (!isDatabaseReady() || requestId == null) {
+            return;
+        }
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("action", "challenge-failed");
+        payload.put("requestId", requestId.toString());
+        payload.put("hostServer", hostServer != null ? hostServer : serverName);
+        if (sourceServer != null) {
+            payload.put("sourceServer", sourceServer);
+        }
+        payload.put("targetServer", targetServer != null ? targetServer : serverName);
+        payload.put("reason", reason);
+        if (challengerName != null) {
+            payload.put("challengerName", challengerName);
+        }
+        if (targetName != null) {
+            payload.put("targetPlayerName", targetName);
+        }
+        payload.put("timestamp", System.currentTimeMillis());
+
+        databaseManager.publishEvent(CHANNEL_DUEL_REQUEST, payload)
+                .exceptionally(throwable -> {
+                    if (config.isNetworkDebugMode()) {
+                        plugin.warn("Failed to publish challenge failure: " + throwable.getMessage());
+                    }
+                    return null;
+                });
+    }
+
+    private void notifyChallengeFailure(RemoteChallenge challenge, String reason) {
+        notifyChallengeFailure(challenge.requestId(), challenge.hostServer(), challenge.sourceServer(),
+                challenge.targetServer(), reason, challenge.challengerName(), challenge.targetName());
+    }
+
+    private void cleanupExpiredChallenges() {
+        if (incomingChallengesById.isEmpty()) {
+            return;
+        }
+
+        long expirationSeconds = Math.max(5, config.getExpiration());
+        long expirationMillis = expirationSeconds * 1000L;
+        long now = System.currentTimeMillis();
+
+        List<RemoteChallenge> expired = new ArrayList<>();
+        for (RemoteChallenge challenge : incomingChallengesById.values()) {
+            if (now - challenge.createdAt() >= expirationMillis) {
+                expired.add(challenge);
+            }
+        }
+
+        if (expired.isEmpty()) {
+            return;
+        }
+
+        expired.forEach(this::removeRemoteChallenge);
+        expired.forEach(challenge -> notifyChallengeFailure(challenge, "expired"));
+    }
+
+    private void sendChallengeSentMessage(Player challenger, String targetName, Settings settings) {
+        String kit = settings.getKit() != null ? settings.getKit().getName() : lang.getMessage("GENERAL.not-selected");
+        String ownInventory = settings.isOwnInventory() ? lang.getMessage("GENERAL.enabled") : lang.getMessage("GENERAL.disabled");
+        String arena = settings.getArena() != null ? settings.getArena().getName() : lang.getMessage("GENERAL.random");
+        double bet = settings.getBet();
+        String itemBetting = settings.isItemBetting() ? lang.getMessage("GENERAL.enabled") : lang.getMessage("GENERAL.disabled");
+
+        lang.sendMessage(challenger, "COMMAND.duel.request.send.sender",
+                "name", targetName,
+                "kit", kit,
+                "own_inventory", ownInventory,
+                "arena", arena,
+                "bet_amount", bet,
+                "item_betting", itemBetting);
+    }
+
+    private void initiateCrossServerChallenge(Player challenger, String targetName, String targetServer, Settings settings) {
+        if (!challenger.isOnline()) {
+            return;
+        }
+
+        Settings baseSettings = settings.lightCopy();
+        baseSettings.setRemoteTargetName(targetName);
+        baseSettings.getCache().computeIfAbsent(challenger.getUniqueId(), uuid ->
+                new CachedInfo(challenger.getLocation() != null ? challenger.getLocation().clone() : null, null));
+
+        CachedInfo cachedInfo = cloneCachedInfo(baseSettings.getCache().get(challenger.getUniqueId()));
+        UUID requestId = UUID.randomUUID();
+
+        PendingLocalMatch localMatch = new PendingLocalMatch(requestId, null, challenger, cachedInfo,
+                baseSettings, baseSettings.getKit() != null ? baseSettings.getKit().getName() : null,
+                baseSettings.getBet(), System.currentTimeMillis());
+
+        pendingLocalMatches.put(requestId, localMatch);
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("action", "challenge");
+        payload.put("requestId", requestId.toString());
+        payload.put("hostServer", serverName);
+        payload.put("sourceServer", serverName);
+        payload.put("targetServer", targetServer);
+        payload.put("challengerId", challenger.getUniqueId().toString());
+        payload.put("challengerName", challenger.getName());
+        payload.put("targetName", targetName);
+        payload.put("bet", baseSettings.getBet());
+        payload.put("ownInventory", baseSettings.isOwnInventory());
+        payload.put("itemBetting", baseSettings.isItemBetting());
+        if (baseSettings.getKit() != null) {
+            payload.put("kitName", baseSettings.getKit().getName());
+        } else {
+            payload.putNull("kitName");
+        }
+        if (baseSettings.getArena() != null) {
+            payload.put("arenaName", baseSettings.getArena().getName());
+        } else {
+            payload.putNull("arenaName");
+        }
+        payload.put("timestamp", System.currentTimeMillis());
+
+        databaseManager.publishEvent(CHANNEL_DUEL_REQUEST, payload)
+                .thenAccept(id -> {
+                    if (id > 0) {
+                        sendChallengeSentMessage(challenger, targetName, baseSettings);
+                    } else {
+                        pendingLocalMatches.remove(requestId);
+                        plugin.doSync(() -> lang.sendMessage(challenger, "ERROR.duel.cross-server-request-failed"));
+                    }
+                })
+                .exceptionally(throwable -> {
+                    pendingLocalMatches.remove(requestId);
+                    plugin.warn("Failed to publish cross-server duel request: " + throwable.getMessage());
+                    plugin.doSync(() -> lang.sendMessage(challenger, "ERROR.duel.cross-server-request-failed"));
+                    return null;
+                });
+    }
+
+    public boolean sendCrossServerChallenge(Player challenger, String targetName, Settings settings) {
+        if (!isDatabaseReady()) {
+            lang.sendMessage(challenger, "ERROR.network.unavailable");
+            return false;
+        }
+
+        if (settings.isPartyDuel()) {
+            lang.sendMessage(challenger, "ERROR.duel.cross-server-party");
+            return false;
+        }
+
+        if (settings.isItemBetting()) {
+            lang.sendMessage(challenger, "ERROR.setting.disabled-option", "option", lang.getMessage("GENERAL.item-betting"));
+            return false;
+        }
+
+        findPlayerServer(targetName).thenAccept(serverOpt -> {
+            if (serverOpt.isEmpty()) {
+                plugin.doSync(() -> lang.sendMessage(challenger, "ERROR.player.not-found", "name", targetName));
+                return;
+            }
+
+            String targetServer = serverOpt.get();
+            if (serverName.equalsIgnoreCase(targetServer)) {
+                plugin.doSync(() -> lang.sendMessage(challenger, "ERROR.player.not-found", "name", targetName));
+                return;
+            }
+
+            plugin.doSync(() -> initiateCrossServerChallenge(challenger, targetName, targetServer, settings));
+        });
+
+        return true;
+    }
+
+    public boolean acceptRemoteChallenge(Player player, String challengerName) {
+        if (!networkEnabled) {
+            return false;
+        }
+
+        RemoteChallenge challenge = getRemoteChallenge(player.getName(), challengerName);
+        if (challenge == null) {
+            return false;
+        }
+
+        removeRemoteChallenge(challenge);
+
+        String kit = challenge.kitName() != null ? challenge.kitName() : lang.getMessage("GENERAL.not-selected");
+        String arena = challenge.arenaName() != null ? challenge.arenaName() : lang.getMessage("GENERAL.random");
+        double bet = challenge.bet();
+        String itemBetting = challenge.itemBetting() ? lang.getMessage("GENERAL.enabled") : lang.getMessage("GENERAL.disabled");
+
+        lang.sendMessage(player, "COMMAND.duel.request.accept.receiver",
+                "name", challenge.challengerName(),
+                "kit", kit,
+                "arena", arena,
+                "bet_amount", bet,
+                "item_betting", itemBetting);
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("action", "challenge-accept");
+        payload.put("requestId", challenge.requestId().toString());
+        payload.put("hostServer", challenge.hostServer());
+        payload.put("sourceServer", serverName);
+        payload.put("targetServer", serverName);
+        if (challenge.challengerId() != null) {
+            payload.put("challengerId", challenge.challengerId().toString());
+        }
+        payload.put("challengerName", challenge.challengerName());
+        payload.put("targetPlayerId", player.getUniqueId().toString());
+        payload.put("targetPlayerName", player.getName());
+        if (challenge.kitName() != null) {
+            payload.put("kitName", challenge.kitName());
+        } else {
+            payload.putNull("kitName");
+        }
+        if (challenge.arenaName() != null) {
+            payload.put("arenaName", challenge.arenaName());
+        } else {
+            payload.putNull("arenaName");
+        }
+        payload.put("ownInventory", challenge.ownInventory());
+        payload.put("itemBetting", challenge.itemBetting());
+        payload.put("bet", challenge.bet());
+        payload.put("timestamp", System.currentTimeMillis());
+
+        databaseManager.publishEvent(CHANNEL_DUEL_REQUEST, payload)
+                .exceptionally(throwable -> {
+                    plugin.warn("Failed to publish challenge acceptance: " + throwable.getMessage());
+                    plugin.doSync(() -> lang.sendMessage(player, "ERROR.duel.cross-server-request-failed"));
+                    return null;
+                });
+
+        return true;
+    }
+
+    public boolean denyRemoteChallenge(Player player, String challengerName) {
+        if (!networkEnabled) {
+            return false;
+        }
+
+        RemoteChallenge challenge = getRemoteChallenge(player.getName(), challengerName);
+        if (challenge == null) {
+            return false;
+        }
+
+        removeRemoteChallenge(challenge);
+
+        lang.sendMessage(player, "COMMAND.duel.request.deny.receiver",
+                "name", challenge.challengerName());
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("action", "challenge-deny");
+        payload.put("requestId", challenge.requestId().toString());
+        payload.put("hostServer", challenge.hostServer());
+        payload.put("sourceServer", serverName);
+        payload.put("targetServer", serverName);
+        payload.put("targetPlayerName", player.getName());
+        payload.put("challengerName", challenge.challengerName());
+        payload.put("timestamp", System.currentTimeMillis());
+
+        databaseManager.publishEvent(CHANNEL_DUEL_REQUEST, payload)
+                .exceptionally(throwable -> {
+                    plugin.warn("Failed to publish challenge denial: " + throwable.getMessage());
+                    return null;
+                });
+
+        return true;
     }
 
     private void handleMatchStartEvents(Collection<NetworkEvent> events) {
@@ -772,6 +1373,112 @@ public class NetworkHandler implements Loadable {
         }
     }
 
+    private static class RemoteChallenge {
+        private final UUID requestId;
+        private final String targetName;
+        private final String challengerName;
+        private final UUID challengerId;
+        private final String hostServer;
+        private final String sourceServer;
+        private final String targetServer;
+        private final String kitName;
+        private final String arenaName;
+        private final boolean ownInventory;
+        private final boolean itemBetting;
+        private final int bet;
+        private final long createdAt;
+
+        RemoteChallenge(UUID requestId, String targetName, String challengerName, UUID challengerId,
+                        String hostServer, String sourceServer, String targetServer, String kitName,
+                        String arenaName, boolean ownInventory, boolean itemBetting, int bet, long createdAt) {
+            this.requestId = requestId;
+            this.targetName = targetName;
+            this.challengerName = challengerName;
+            this.challengerId = challengerId;
+            this.hostServer = hostServer;
+            this.sourceServer = sourceServer;
+            this.targetServer = targetServer;
+            this.kitName = kitName;
+            this.arenaName = arenaName;
+            this.ownInventory = ownInventory;
+            this.itemBetting = itemBetting;
+            this.bet = bet;
+            this.createdAt = createdAt;
+        }
+
+        UUID requestId() {
+            return requestId;
+        }
+
+        String targetName() {
+            return targetName;
+        }
+
+        String challengerName() {
+            return challengerName;
+        }
+
+        UUID challengerId() {
+            return challengerId;
+        }
+
+        String hostServer() {
+            return hostServer;
+        }
+
+        String sourceServer() {
+            return sourceServer;
+        }
+
+        String targetServer() {
+            return targetServer;
+        }
+
+        String kitName() {
+            return kitName;
+        }
+
+        String arenaName() {
+            return arenaName;
+        }
+
+        boolean ownInventory() {
+            return ownInventory;
+        }
+
+        boolean itemBetting() {
+            return itemBetting;
+        }
+
+        int bet() {
+            return bet;
+        }
+
+        long createdAt() {
+            return createdAt;
+        }
+
+        String targetKey() {
+            return targetName.toLowerCase(Locale.ROOT);
+        }
+
+        String challengerKey() {
+            return challengerName.toLowerCase(Locale.ROOT);
+        }
+    }
+
+    private UUID parseUuid(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
     private NetworkQueue deserializeQueueEntry(ObjectNode payload) {
         String playerIdRaw = payload.path("playerId").asText(null);
         String playerName = payload.path("playerName").asText(null);
@@ -884,7 +1591,7 @@ public class NetworkHandler implements Loadable {
         databaseManager.publishEvent(CHANNEL_ARENA_UPDATE, payload)
                 .exceptionally(throwable -> {
                     plugin.warn("Failed to broadcast arena update: " + throwable.getMessage());
-                    return -1L;
+                    return null;
                 });
     }
 
@@ -934,7 +1641,7 @@ public class NetworkHandler implements Loadable {
         databaseManager.publishEvent(CHANNEL_QUEUE_UPDATE, payload)
                 .exceptionally(throwable -> {
                     plugin.warn("Failed to publish queue join event: " + throwable.getMessage());
-                    return -1L;
+                    return null;
                 });
     }
 
@@ -965,7 +1672,7 @@ public class NetworkHandler implements Loadable {
         databaseManager.publishEvent(CHANNEL_QUEUE_UPDATE, payload)
                 .exceptionally(throwable -> {
                     plugin.warn("Failed to publish queue leave event: " + throwable.getMessage());
-                    return -1L;
+                    return null;
                 });
     }
 
@@ -1004,7 +1711,7 @@ public class NetworkHandler implements Loadable {
                     if (config.isNetworkDebugMode()) {
                         plugin.warn("Failed to publish player join event: " + throwable.getMessage());
                     }
-                    return -1L;
+                    return null;
                 });
     }
 
@@ -1030,8 +1737,12 @@ public class NetworkHandler implements Loadable {
                     if (config.isNetworkDebugMode()) {
                         plugin.warn("Failed to publish player leave event: " + throwable.getMessage());
                     }
-                    return -1L;
+                    return null;
                 });
+
+        if (!incomingChallengesByTarget.isEmpty()) {
+            removeChallengesForTarget(player.getName()).forEach(challenge -> notifyChallengeFailure(challenge, "offline"));
+        }
     }
 
     public CompletableFuture<Boolean> requestPlayerTransfer(String playerName, String reason) {
@@ -1221,5 +1932,15 @@ public class NetworkHandler implements Loadable {
     public Collection<NetworkQueue> getQueueEntries(String kitName, int bet) {
         String key = buildQueueKey(kitName, bet);
         return networkQueues.getOrDefault(key, Collections.emptyList());
+    }
+
+    public List<NetworkArena> getRemoteArenasSnapshot() {
+        return new ArrayList<>(networkArenas.values());
+    }
+
+    public Map<String, List<NetworkQueue>> getNetworkQueuesSnapshot() {
+        Map<String, List<NetworkQueue>> snapshot = new HashMap<>();
+        networkQueues.forEach((key, value) -> snapshot.put(key, new ArrayList<>(value)));
+        return snapshot;
     }
 }
