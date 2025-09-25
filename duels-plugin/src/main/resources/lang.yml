@@ -371,8 +371,8 @@ COMMAND:
         header: '{HALF_LINE} &fNetwork Status {HALF_LINE}'
         enabled: '{PREFIX} &aNetwork mode enabled on server: &f%server%'
         disabled: '{PREFIX} &cNetwork mode disabled - running in standalone mode'
-        redis-connected: '{PREFIX} &aRedis connection: &2Connected'
-        redis-disconnected: '{PREFIX} &cRedis connection: &4Disconnected'
+        database-connected: '{PREFIX} &aDatabase connection: &2Connected'
+        database-disconnected: '{PREFIX} &cDatabase connection: &4Disconnected'
         footer: '{HALF_LINE} &fNetwork Status {HALF_LINE}'
       reload:
         start: '{PREFIX} &7Reloading network configuration...'

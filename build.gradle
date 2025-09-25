@@ -19,6 +19,23 @@ subprojects {
     apply plugin: 'com.gradleup.shadow'
     apply plugin: 'maven-publish'
 
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+        withSourcesJar()
+        withJavadocJar()
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.release = 21
+    }
+
+    tasks.withType(Javadoc).configureEach {
+        options.encoding = 'UTF-8'
+    }
+
     repositories {
         mavenCentral()
         mavenLocal()

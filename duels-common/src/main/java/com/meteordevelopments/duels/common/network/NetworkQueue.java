@@ -71,6 +71,6 @@ public class NetworkQueue {
     }
 
     public String getQueueKey() {
-        return kitName + ":" + bet;
+        return (kitName == null ? "__none__" : kitName) + ":" + bet;
     }
 }

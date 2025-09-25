@@ -9,6 +9,10 @@ processResources {
     }
 }
 
+tasks.withType(Jar).configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 dependencies {
     compileOnly 'org.jetbrains:annotations-java5:24.1.0'
     compileOnly 'org.projectlombok:lombok:1.18.38'
@@ -17,7 +21,8 @@ dependencies {
     annotationProcessor 'com.velocitypowered:velocity-api:3.3.0-SNAPSHOT'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.19.2'
     implementation 'org.json:json:20250517'
-    implementation 'org.redisson:redisson:3.25.2'
+    implementation 'com.zaxxer:HikariCP:5.1.0'
+    implementation 'com.mysql:mysql-connector-j:9.2.0'
     implementation project(':duels-common')
 }
 
@@ -31,12 +36,17 @@ shadowJar {
         include(project(':duels-common'))
         include(dependency('com.fasterxml.jackson.core:.*'))
         include(dependency('org.json:.*'))
-        include(dependency('org.redisson:.*'))
+        include(dependency('com.zaxxer:HikariCP:.*'))
+        include(dependency('com.mysql:.*'))
+    }
+
+    mergeServiceFiles {
+        include 'META-INF/services/java.sql.Driver'
     }
 
     final String group = project.group.toString() + "." + parent.name.toLowerCase() + ".shaded."
     relocate 'com.fasterxml.jackson', 'com.meteordevelopments.duels.shaded.jackson'
-    relocate 'org.redisson', group + 'redisson'
+    relocate 'com.zaxxer.hikari', group + 'hikari'
 }
 
 // To build Duels velocity plugin jar, run './gradlew :duels-velocity:clean :duels-velocity:build'.

@@ -38,8 +38,7 @@ public class NetworkListener implements Listener {
         // Get network handler at runtime to avoid loading order issues  
         NetworkHandler handler = plugin.getNetworkHandler();
         if (handler != null && handler.isNetworkEnabled()) {
-            // Player location will expire automatically in Redis
-            // No need for explicit cleanup since we use TTL
+            handler.handlePlayerQuit(event.getPlayer());
         }
     }
 }

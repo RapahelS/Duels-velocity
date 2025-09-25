@@ -1,23 +1,25 @@
 package com.meteordevelopments.duels.velocity.listeners;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.meteordevelopments.duels.common.database.DatabaseManager;
 import com.meteordevelopments.duels.velocity.DuelsVelocityPlugin;
-import com.meteordevelopments.duels.velocity.data.RedisManager;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.time.Instant;
 
 public class PlayerConnectionListener {
 
     private final DuelsVelocityPlugin plugin;
-    private final RedisManager redisManager;
+    private final DatabaseManager databaseManager;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public PlayerConnectionListener(DuelsVelocityPlugin plugin) {
         this.plugin = plugin;
-        this.redisManager = plugin.getRedisManager();
+        this.databaseManager = plugin.getDatabaseManager();
     }
 
     @Subscribe
@@ -25,14 +27,19 @@ public class PlayerConnectionListener {
         Player player = event.getPlayer();
         String serverName = event.getServer().getServerInfo().getName();
 
-        // Notify all servers about player joining a specific server
-        Map<String, Object> data = new HashMap<>();
-        data.put("playerId", player.getUniqueId().toString());
-        data.put("playerName", player.getUsername());
-        data.put("serverName", serverName);
-        data.put("timestamp", System.currentTimeMillis());
+        if (databaseManager == null || !databaseManager.isConnected()) {
+            return;
+        }
 
-        redisManager.publish("player-join", data);
+        long now = Instant.now().toEpochMilli();
+        databaseManager.upsertPlayer(player.getUniqueId(), player.getUsername(), serverName, now);
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("playerId", player.getUniqueId().toString());
+        payload.put("playerName", player.getUsername());
+        payload.put("serverName", serverName);
+        payload.put("timestamp", now);
+        databaseManager.publishEvent("duels:player-join", payload);
 
         if (plugin.getConfig().isDebugMode()) {
             plugin.getLogger().info("Player {} connected to server {}", 
@@ -44,13 +51,17 @@ public class PlayerConnectionListener {
     public void onPlayerDisconnect(DisconnectEvent event) {
         Player player = event.getPlayer();
 
-        // Notify all servers about player leaving the network
-        Map<String, Object> data = new HashMap<>();
-        data.put("playerId", player.getUniqueId().toString());
-        data.put("playerName", player.getUsername());
-        data.put("timestamp", System.currentTimeMillis());
+        if (databaseManager == null || !databaseManager.isConnected()) {
+            return;
+        }
 
-        redisManager.publish("player-leave", data);
+        databaseManager.removePlayer(player.getUniqueId());
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("playerId", player.getUniqueId().toString());
+        payload.put("playerName", player.getUsername());
+        payload.put("timestamp", Instant.now().toEpochMilli());
+        databaseManager.publishEvent("duels:player-leave", payload);
 
         if (plugin.getConfig().isDebugMode()) {
             plugin.getLogger().info("Player {} disconnected from the network", 

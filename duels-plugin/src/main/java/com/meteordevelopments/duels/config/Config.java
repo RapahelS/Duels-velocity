@@ -4,6 +4,7 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import lombok.Getter;
 import com.meteordevelopments.duels.DuelsPlugin;
+import com.meteordevelopments.duels.common.database.DatabaseSettings;
 import com.meteordevelopments.duels.config.converters.ConfigConverter9_10;
 import com.meteordevelopments.duels.util.EnumUtil;
 import com.meteordevelopments.duels.util.config.AbstractConfiguration;
@@ -289,15 +290,27 @@ public class Config extends AbstractConfiguration<DuelsPlugin> {
     @Getter
     private String networkServerName;
     @Getter
-    private String networkRedisHost;
-    @Getter
-    private int networkRedisPort;
-    @Getter
-    private String networkRedisPassword;
-    @Getter
-    private int networkRedisDatabase;
-    @Getter
     private boolean networkDebugMode;
+    @Getter
+    private String networkDatabaseHost;
+    @Getter
+    private int networkDatabasePort;
+    @Getter
+    private String networkDatabaseName;
+    @Getter
+    private String networkDatabaseUsername;
+    @Getter
+    private String networkDatabasePassword;
+    @Getter
+    private boolean networkDatabaseUseSsl;
+    @Getter
+    private int networkDatabaseMaximumPoolSize;
+    @Getter
+    private int networkDatabaseMinimumIdle;
+    @Getter
+    private long networkDatabaseConnectionTimeoutMs;
+    @Getter
+    private long networkDatabaseIdleTimeoutMs;
 
     private final Multimap<String, MessageSound> messageToSounds = HashMultimap.create();
 
@@ -462,11 +475,41 @@ public class Config extends AbstractConfiguration<DuelsPlugin> {
         // Load network configuration
         networkEnabled = configuration.getBoolean("network.enabled", false);
         networkServerName = configuration.getString("network.server-name", "server1");
-        networkRedisHost = configuration.getString("network.redis.host", "localhost");
-        networkRedisPort = configuration.getInt("network.redis.port", 6379);
-        networkRedisPassword = configuration.getString("network.redis.password", "");
-        networkRedisDatabase = configuration.getInt("network.redis.database", 0);
         networkDebugMode = configuration.getBoolean("network.debug-mode", false);
+
+        final ConfigurationSection databaseSection = configuration.getConfigurationSection("network.database");
+        if (databaseSection != null) {
+            networkDatabaseHost = databaseSection.getString("host", "localhost");
+            networkDatabasePort = databaseSection.getInt("port", 3306);
+            networkDatabaseName = databaseSection.getString("name", "duels");
+            networkDatabaseUsername = databaseSection.getString("username", "duels");
+            networkDatabasePassword = databaseSection.getString("password", "");
+            networkDatabaseUseSsl = databaseSection.getBoolean("use-ssl", false);
+
+            final ConfigurationSection poolSection = databaseSection.getConfigurationSection("pool");
+            if (poolSection != null) {
+                networkDatabaseMaximumPoolSize = poolSection.getInt("maximum-pool-size", 10);
+                networkDatabaseMinimumIdle = poolSection.getInt("minimum-idle", 2);
+                networkDatabaseConnectionTimeoutMs = poolSection.getLong("connection-timeout-ms", 10_000L);
+                networkDatabaseIdleTimeoutMs = poolSection.getLong("idle-timeout-ms", 600_000L);
+            } else {
+                networkDatabaseMaximumPoolSize = 10;
+                networkDatabaseMinimumIdle = 2;
+                networkDatabaseConnectionTimeoutMs = 10_000L;
+                networkDatabaseIdleTimeoutMs = 600_000L;
+            }
+        } else {
+            networkDatabaseHost = "localhost";
+            networkDatabasePort = 3306;
+            networkDatabaseName = "duels";
+            networkDatabaseUsername = "duels";
+            networkDatabasePassword = "";
+            networkDatabaseUseSsl = false;
+            networkDatabaseMaximumPoolSize = 10;
+            networkDatabaseMinimumIdle = 2;
+            networkDatabaseConnectionTimeoutMs = 10_000L;
+            networkDatabaseIdleTimeoutMs = 600_000L;
+        }
 
         final ConfigurationSection sounds = configuration.getConfigurationSection("sounds");
 
@@ -500,6 +543,21 @@ public class Config extends AbstractConfiguration<DuelsPlugin> {
 
     public Set<String> getSounds() {
         return sounds.keySet();
+    }
+
+    public DatabaseSettings getNetworkDatabaseSettings() {
+        return DatabaseSettings.builder()
+                .host(networkDatabaseHost)
+                .port(networkDatabasePort)
+                .database(networkDatabaseName)
+                .username(networkDatabaseUsername)
+                .password(networkDatabasePassword)
+                .useSsl(networkDatabaseUseSsl)
+                .maximumPoolSize(networkDatabaseMaximumPoolSize)
+                .minimumIdle(networkDatabaseMinimumIdle)
+                .connectionTimeoutMs(networkDatabaseConnectionTimeoutMs)
+                .idleTimeoutMs(networkDatabaseIdleTimeoutMs)
+                .build();
     }
 
     public class MessageSound {

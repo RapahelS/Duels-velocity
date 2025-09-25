@@ -66,6 +66,20 @@ public class Queue extends BaseButton implements DQueue {
         return false;
     }
 
+    public boolean removeEntrySilently(final QueueEntry entry) {
+        if (entry == null) {
+            return false;
+        }
+
+        if (players.remove(entry)) {
+            update();
+            queueManager.getGui().calculatePages();
+            return true;
+        }
+
+        return false;
+    }
+
     boolean removeAll(final Set<QueueEntry> players) {
         if (this.players.removeAll(players)) {
             update();

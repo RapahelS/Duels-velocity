@@ -1,169 +1,221 @@
 package com.meteordevelopments.duels.velocity.network;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.meteordevelopments.duels.common.database.DatabaseManager;
 import com.meteordevelopments.duels.velocity.DuelsVelocityPlugin;
-import com.meteordevelopments.duels.velocity.data.RedisManager;
+import com.velocitypowered.api.proxy.Player;
+import com.meteordevelopments.duels.common.network.NetworkQueue;
 import lombok.Getter;
 
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public class PacketHandler {
 
+    private static final String CHANNEL_ARENA_UPDATE = "duels:arena-update";
+    private static final String CHANNEL_KIT_UPDATE = "duels:kit-update";
+    private static final String CHANNEL_QUEUE_UPDATE = "duels:queue-update";
+    private static final String CHANNEL_MATCH_START = "duels:match-start";
+    private static final String CHANNEL_MATCH_END = "duels:match-end";
+    private static final String CHANNEL_PLAYER_TRANSFER = "duels:player-transfer";
+
     private final DuelsVelocityPlugin plugin;
     @Getter
-    private final RedisManager redisManager;
+    private final DatabaseManager databaseManager;
     private final NetworkManager networkManager;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public PacketHandler(DuelsVelocityPlugin plugin) {
         this.plugin = plugin;
-        this.redisManager = plugin.getRedisManager();
+        this.databaseManager = plugin.getDatabaseManager();
         this.networkManager = plugin.getNetworkManager();
-        
-        setupPacketHandlers();
     }
 
-    private void setupPacketHandlers() {
-        // Handle arena data synchronization
-        redisManager.subscribe("arena-update", this::handleArenaUpdate);
-        redisManager.subscribe("kit-update", this::handleKitUpdate);
-        redisManager.subscribe("queue-update", this::handleQueueUpdate);
-        redisManager.subscribe("match-start", this::handleMatchStart);
-        redisManager.subscribe("match-end", this::handleMatchEnd);
-    }
+    /* ----------------------------- Arena Management ----------------------------- */
 
-    // Arena Management
     public CompletableFuture<Void> syncArenaData(String serverName, String arenaName, Map<String, Object> arenaData) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("serverName", serverName);
-        message.put("arenaName", arenaName);
-        message.put("arenaData", arenaData);
-        message.put("action", "update");
-        message.put("timestamp", System.currentTimeMillis());
+        if (!isDatabaseReady()) {
+            return CompletableFuture.completedFuture(null);
+        }
 
-        redisManager.publish("arena-update", message);
-        return CompletableFuture.completedFuture(null);
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("serverName", serverName);
+        payload.put("arenaName", arenaName);
+        payload.put("action", "update");
+        payload.put("timestamp", System.currentTimeMillis());
+        payload.set("arenaData", mapper.valueToTree(arenaData));
+
+        return databaseManager.publishEvent(CHANNEL_ARENA_UPDATE, payload)
+            .thenAccept(ignored -> {
+            });
     }
 
     public CompletableFuture<Void> removeArena(String serverName, String arenaName) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("serverName", serverName);
-        message.put("arenaName", arenaName);
-        message.put("action", "remove");
-        message.put("timestamp", System.currentTimeMillis());
+        if (!isDatabaseReady()) {
+            return CompletableFuture.completedFuture(null);
+        }
 
-        redisManager.publish("arena-update", message);
-        return CompletableFuture.completedFuture(null);
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("serverName", serverName);
+        payload.put("arenaName", arenaName);
+        payload.put("action", "remove");
+        payload.put("timestamp", System.currentTimeMillis());
+
+        return databaseManager.publishEvent(CHANNEL_ARENA_UPDATE, payload)
+            .thenAccept(ignored -> {
+            });
     }
 
-    // Kit Management
+    /* ----------------------------- Kit Management ----------------------------- */
+
     public CompletableFuture<Void> syncKitData(String kitName, Map<String, Object> kitData) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("kitName", kitName);
-        message.put("kitData", kitData);
-        message.put("action", "update");
-        message.put("timestamp", System.currentTimeMillis());
+        if (!isDatabaseReady()) {
+            return CompletableFuture.completedFuture(null);
+        }
 
-        redisManager.publish("kit-update", message);
-        return CompletableFuture.completedFuture(null);
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("kitName", kitName);
+        payload.put("action", "update");
+        payload.put("timestamp", System.currentTimeMillis());
+        payload.set("kitData", mapper.valueToTree(kitData));
+
+        return databaseManager.publishEvent(CHANNEL_KIT_UPDATE, payload)
+            .thenAccept(ignored -> {
+            });
     }
 
-    // Queue Management
+    /* ----------------------------- Queue Management ----------------------------- */
+
     public CompletableFuture<Void> updateQueueStatus(UUID playerId, String kitName, String serverName, String action) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("playerId", playerId.toString());
-        message.put("kitName", kitName);
-        message.put("serverName", serverName);
-        message.put("action", action); // join, leave, match_found
-        message.put("timestamp", System.currentTimeMillis());
+        if (!isDatabaseReady()) {
+            return CompletableFuture.completedFuture(null);
+        }
 
-        redisManager.publish("queue-update", message);
-        return CompletableFuture.completedFuture(null);
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("playerId", playerId.toString());
+        if (kitName != null) {
+            payload.put("kitName", kitName);
+        } else {
+            payload.putNull("kitName");
+        }
+        payload.put("serverName", serverName);
+        payload.put("action", action);
+        payload.put("timestamp", System.currentTimeMillis());
+
+        return databaseManager.publishEvent(CHANNEL_QUEUE_UPDATE, payload)
+            .thenAccept(ignored -> {
+            });
     }
 
-    // Match Management
-    public CompletableFuture<Void> notifyMatchStart(String arenaName, String serverName, UUID[] players, String kitName) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("arenaName", arenaName);
-        message.put("serverName", serverName);
-        message.put("players", java.util.Arrays.stream(players).map(UUID::toString).toArray());
-        message.put("kitName", kitName);
-        message.put("action", "start");
-        message.put("timestamp", System.currentTimeMillis());
+    /* ----------------------------- Match Management ----------------------------- */
 
-        redisManager.publish("match-start", message);
-        return CompletableFuture.completedFuture(null);
+    public CompletableFuture<Void> notifyMatchStart(UUID matchId, String serverName,
+                                                    List<NetworkQueue> teamA, List<NetworkQueue> teamB,
+                                                    String kitName, int bet) {
+        if (!isDatabaseReady()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("serverName", serverName);
+        payload.put("action", "start");
+        if (matchId != null) {
+            payload.put("matchId", matchId.toString());
+        }
+        if (kitName != null) {
+            payload.put("kitName", kitName);
+        } else {
+            payload.putNull("kitName");
+        }
+        payload.put("bet", bet);
+        payload.put("action", "start");
+        payload.put("timestamp", System.currentTimeMillis());
+
+        ArrayNode array = payload.putArray("players");
+        appendPlayers(array, teamA, "A");
+        appendPlayers(array, teamB, "B");
+
+        return databaseManager.publishEvent(CHANNEL_MATCH_START, payload)
+            .thenAccept(ignored -> {
+            });
     }
 
-    public CompletableFuture<Void> notifyMatchEnd(String arenaName, String serverName, UUID winner, UUID loser, String reason) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("arenaName", arenaName);
-        message.put("serverName", serverName);
-        message.put("winner", winner != null ? winner.toString() : null);
-        message.put("loser", loser != null ? loser.toString() : null);
-        message.put("reason", reason);
-        message.put("action", "end");
-        message.put("timestamp", System.currentTimeMillis());
+    private void appendPlayers(ArrayNode array, List<NetworkQueue> players, String side) {
+        if (players == null) {
+            return;
+        }
 
-        redisManager.publish("match-end", message);
-        return CompletableFuture.completedFuture(null);
-    }
-
-    // Player Transfer Request
-    public CompletableFuture<Boolean> requestPlayerTransfer(UUID playerId, String targetServer, String reason) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("playerId", playerId.toString());
-        message.put("targetServer", targetServer);
-        message.put("reason", reason);
-        message.put("timestamp", System.currentTimeMillis());
-
-        redisManager.publish("player-transfer", message);
-        
-        // The actual transfer is handled by NetworkManager
-        return networkManager.transferPlayer(playerId, targetServer);
-    }
-
-    // Event Handlers
-    private void handleArenaUpdate(String channel, Object message) {
-        plugin.getLogger().debug("Arena update received: {}", message);
-        // Arena updates are handled by individual server plugins
-    }
-
-    private void handleKitUpdate(String channel, Object message) {
-        plugin.getLogger().debug("Kit update received: {}", message);
-        // Kit updates are handled by individual server plugins
-    }
-
-    private void handleQueueUpdate(String channel, Object message) {
-        plugin.getLogger().debug("Queue update received: {}", message);
-        // Queue updates might trigger cross-server match making
-        if (message instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data = (Map<String, Object>) message;
-            String action = (String) data.get("action");
-            
-            if ("join".equals(action)) {
-                // Player joined queue - check for cross-server matches
-                checkForCrossServerMatches();
+        for (NetworkQueue participant : players) {
+            ObjectNode playerNode = mapper.createObjectNode();
+            playerNode.put("id", participant.getPlayerId().toString());
+            playerNode.put("name", participant.getPlayerName());
+            playerNode.put("origin", participant.getServerName());
+            playerNode.put("side", side);
+            if (participant.getKitName() != null) {
+                playerNode.put("kit", participant.getKitName());
             }
+            playerNode.put("bet", participant.getBet());
+            array.add(playerNode);
         }
     }
 
-    private void handleMatchStart(String channel, Object message) {
-        plugin.getLogger().debug("Match start received: {}", message);
-        // Match start notifications for statistics/logging
+    public CompletableFuture<Void> notifyMatchEnd(String arenaName, String serverName, UUID winner, UUID loser, String reason) {
+        if (!isDatabaseReady()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("arenaName", arenaName);
+        payload.put("serverName", serverName);
+        payload.put("action", "end");
+        payload.put("timestamp", System.currentTimeMillis());
+        payload.put("reason", reason);
+
+        if (winner != null) {
+            payload.put("winner", winner.toString());
+        }
+        if (loser != null) {
+            payload.put("loser", loser.toString());
+        }
+
+        return databaseManager.publishEvent(CHANNEL_MATCH_END, payload)
+            .thenAccept(ignored -> {
+            });
     }
 
-    private void handleMatchEnd(String channel, Object message) {
-        plugin.getLogger().debug("Match end received: {}", message);
-        // Match end notifications for statistics/logging
+    /* ----------------------------- Player Transfers ----------------------------- */
+
+    public CompletableFuture<Boolean> requestPlayerTransfer(UUID playerId, String targetServer, String reason) {
+        if (!isDatabaseReady()) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("playerId", playerId.toString());
+        networkManager.getPlayerServer(playerId).ifPresent(server -> payload.put("playerServer", server));
+        payload.put("targetServer", targetServer);
+        payload.put("reason", reason);
+        payload.put("timestamp", System.currentTimeMillis());
+
+        plugin.getServer().getPlayer(playerId)
+            .map(Player::getUsername)
+            .ifPresent(name -> payload.put("playerName", name));
+
+        return databaseManager.publishEvent(CHANNEL_PLAYER_TRANSFER, payload)
+            .thenApply(id -> id > 0)
+            .thenCompose(result -> {
+                if (!result) {
+                    return CompletableFuture.completedFuture(false);
+                }
+                return networkManager.transferPlayer(playerId, targetServer);
+            });
     }
 
-    private void checkForCrossServerMatches() {
-        // This is a placeholder for more sophisticated cross-server matchmaking
-        // In a full implementation, this would query Redis for pending queue entries
-        // and attempt to match players across different servers
-        plugin.getLogger().debug("Checking for cross-server matches...");
+    private boolean isDatabaseReady() {
+        return databaseManager != null && databaseManager.isConnected();
     }
 }

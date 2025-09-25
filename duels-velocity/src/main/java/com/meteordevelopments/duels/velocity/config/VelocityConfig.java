@@ -3,6 +3,7 @@ package com.meteordevelopments.duels.velocity.config;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.meteordevelopments.duels.common.database.DatabaseSettings;
 import com.meteordevelopments.duels.velocity.DuelsVelocityPlugin;
 import lombok.Getter;
 
@@ -21,17 +22,27 @@ public class VelocityConfig {
     @Getter
     private JsonNode config;
 
-    // Redis configuration
+    // Database configuration
     @Getter
-    private String redisHost = "localhost";
+    private String databaseHost = "localhost";
     @Getter
-    private int redisPort = 6379;
+    private int databasePort = 3306;
     @Getter
-    private String redisPassword = "";
+    private String databaseName = "duels";
     @Getter
-    private int redisDatabase = 0;
+    private String databaseUsername = "duels";
     @Getter
-    private String redisPrefix = "duels:";
+    private String databasePassword = "";
+    @Getter
+    private boolean databaseUseSsl = false;
+    @Getter
+    private int databaseMaximumPoolSize = 10;
+    @Getter
+    private int databaseMinimumIdle = 2;
+    @Getter
+    private long databaseConnectionTimeoutMs = 10_000L;
+    @Getter
+    private long databaseIdleTimeoutMs = 600_000L;
 
     // Server configuration
     @Getter
@@ -73,14 +84,23 @@ public class VelocityConfig {
     private void createDefaultConfig() throws IOException {
         ObjectNode defaultConfig = mapper.createObjectNode();
 
-        // Redis configuration
-        ObjectNode redis = mapper.createObjectNode();
-        redis.put("host", redisHost);
-        redis.put("port", redisPort);
-        redis.put("password", redisPassword);
-        redis.put("database", redisDatabase);
-        redis.put("prefix", redisPrefix);
-        defaultConfig.set("redis", redis);
+    // Database configuration
+    ObjectNode database = mapper.createObjectNode();
+    database.put("host", databaseHost);
+    database.put("port", databasePort);
+    database.put("name", databaseName);
+    database.put("username", databaseUsername);
+    database.put("password", databasePassword);
+    database.put("use-ssl", databaseUseSsl);
+
+    ObjectNode pool = mapper.createObjectNode();
+    pool.put("maximum-pool-size", databaseMaximumPoolSize);
+    pool.put("minimum-idle", databaseMinimumIdle);
+    pool.put("connection-timeout-ms", databaseConnectionTimeoutMs);
+    pool.put("idle-timeout-ms", databaseIdleTimeoutMs);
+    database.set("pool", pool);
+
+    defaultConfig.set("database", database);
 
         // Server configuration
         ObjectNode servers = mapper.createObjectNode();
@@ -101,14 +121,23 @@ public class VelocityConfig {
     }
 
     private void loadValues() {
-        // Load Redis configuration
-        JsonNode redis = config.get("redis");
-        if (redis != null) {
-            redisHost = redis.path("host").asText(redisHost);
-            redisPort = redis.path("port").asInt(redisPort);
-            redisPassword = redis.path("password").asText(redisPassword);
-            redisDatabase = redis.path("database").asInt(redisDatabase);
-            redisPrefix = redis.path("prefix").asText(redisPrefix);
+        // Load database configuration
+        JsonNode database = config.get("database");
+        if (database != null) {
+            databaseHost = database.path("host").asText(databaseHost);
+            databasePort = database.path("port").asInt(databasePort);
+            databaseName = database.path("name").asText(databaseName);
+            databaseUsername = database.path("username").asText(databaseUsername);
+            databasePassword = database.path("password").asText(databasePassword);
+            databaseUseSsl = database.path("use-ssl").asBoolean(databaseUseSsl);
+
+            JsonNode pool = database.get("pool");
+            if (pool != null && pool.isObject()) {
+                databaseMaximumPoolSize = pool.path("maximum-pool-size").asInt(databaseMaximumPoolSize);
+                databaseMinimumIdle = pool.path("minimum-idle").asInt(databaseMinimumIdle);
+                databaseConnectionTimeoutMs = pool.path("connection-timeout-ms").asLong(databaseConnectionTimeoutMs);
+                databaseIdleTimeoutMs = pool.path("idle-timeout-ms").asLong(databaseIdleTimeoutMs);
+            }
         }
 
         // Load server configuration
@@ -132,5 +161,20 @@ public class VelocityConfig {
 
     public boolean isDuelServer(String serverName) {
         return duelServers.contains(serverName);
+    }
+
+    public DatabaseSettings buildDatabaseSettings() {
+        return DatabaseSettings.builder()
+            .host(databaseHost)
+            .port(databasePort)
+            .database(databaseName)
+            .username(databaseUsername)
+            .password(databasePassword)
+            .useSsl(databaseUseSsl)
+            .maximumPoolSize(databaseMaximumPoolSize)
+            .minimumIdle(databaseMinimumIdle)
+            .connectionTimeoutMs(databaseConnectionTimeoutMs)
+            .idleTimeoutMs(databaseIdleTimeoutMs)
+            .build();
     }
 }

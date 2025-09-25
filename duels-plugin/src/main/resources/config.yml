@@ -7,7 +7,7 @@
 #                                       #
 #########################################
 # DO NOT EDIT THIS VALUE!
-config-version: 12
+config-version: 13
 
 # If set to 'true', a notification and a download link will be printed on both console and in-game when a new update is available.
 # default: true
@@ -698,35 +698,58 @@ no-kit: 'none'
 # Displayed when player's opponent in duel is killed.
 no-opponent: 'No opponent'
 
-# NETWORK CONFIG - Cross-server support via Velocity proxy
+# NETWORK CONFIG - Cross-server support via Velocity proxy and shared SQL database
 network:
-  # Enable cross-server functionality. Requires Redis and Velocity proxy with Duels-Velocity plugin
+  # Enable cross-server functionality. Requires the Duels-Velocity plugin and a MySQL-compatible database
   # default: false
   enabled: false
-  
+
   # Unique server name for this instance (used to identify this server in the network)
   # Must be unique across all servers in your network
   # default: 'server1'
   server-name: 'server1'
-  
-  # Redis configuration for cross-server communication
-  redis:
-    # Redis server hostname or IP address
+
+  # Database configuration for cross-server communication
+  database:
+    # Database hostname or IP address
     # default: 'localhost'
     host: 'localhost'
-    
-    # Redis server port
-    # default: 6379
-    port: 6379
-    
-    # Redis password (leave empty if no password)
-    # default: ''
+
+    # Database port
+    # default: 3306
+    port: 3306
+
+    # Database name to store shared Duels data
+    # default: 'duels'
+    name: 'duels'
+
+    # Database credentials
+    # default: username 'duels' with empty password
+    username: 'duels'
     password: ''
-    
-    # Redis database number to use
-    # default: 0
-    database: 0
-  
+
+    # Enable SSL for the database connection
+    # default: false
+    use-ssl: false
+
+    # HikariCP pool tuning
+    pool:
+      # Maximum number of connections in the pool
+      # default: 10
+      maximum-pool-size: 10
+
+      # Minimum number of idle connections to keep
+      # default: 2
+      minimum-idle: 2
+
+      # Connection timeout in milliseconds
+      # default: 10000
+      connection-timeout-ms: 10000
+
+      # Idle timeout in milliseconds
+      # default: 600000
+      idle-timeout-ms: 600000
+
   # Enable debug mode for network operations
   # default: false
   debug-mode: false

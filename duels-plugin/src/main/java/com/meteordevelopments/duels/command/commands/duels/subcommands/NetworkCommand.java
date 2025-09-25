@@ -48,10 +48,10 @@ public class NetworkCommand extends BaseCommand {
         if (networkHandler.isNetworkEnabled()) {
             lang.sendMessage(sender, "COMMAND.duels.network.status.enabled", "server", networkHandler.getServerName());
             
-            if (networkHandler.getRedisson() != null && !networkHandler.getRedisson().isShutdown()) {
-                lang.sendMessage(sender, "COMMAND.duels.network.status.redis-connected");
+            if (networkHandler.isDatabaseConnected()) {
+                lang.sendMessage(sender, "COMMAND.duels.network.status.database-connected");
             } else {
-                lang.sendMessage(sender, "COMMAND.duels.network.status.redis-disconnected");
+                lang.sendMessage(sender, "COMMAND.duels.network.status.database-disconnected");
             }
         } else {
             lang.sendMessage(sender, "COMMAND.duels.network.status.disabled");

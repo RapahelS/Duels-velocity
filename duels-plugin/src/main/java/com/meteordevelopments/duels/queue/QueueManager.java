@@ -148,6 +148,10 @@ public class QueueManager implements Loadable, DQueueManager, Listener {
         this.vault = plugin.getHookManager().getHook(VaultHook.class);
         this.networkHandler = plugin.getNetworkHandler();
         this.queueTask = plugin.doSyncRepeat(() -> {
+            if (networkHandler != null && networkHandler.isNetworkEnabled()) {
+                return;
+            }
+
             boolean update = false;
 
             for (final Queue queue : queues) {

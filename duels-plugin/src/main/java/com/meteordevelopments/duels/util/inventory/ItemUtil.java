@@ -2,10 +2,10 @@ package com.meteordevelopments.duels.util.inventory;
 
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.io.BukkitObjectInputStream;
-import org.yaml.snakeyaml.external.biz.base64Coder.Base64Coder;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Base64;
 
 public final class ItemUtil {
 
@@ -14,7 +14,8 @@ public final class ItemUtil {
 
     public static ItemStack itemFrom64(final String data) {
         try {
-            final ByteArrayInputStream inputStream = new ByteArrayInputStream(Base64Coder.decodeLines(data));
+            final byte[] decoded = Base64.getMimeDecoder().decode(data);
+            final ByteArrayInputStream inputStream = new ByteArrayInputStream(decoded);
             try (final BukkitObjectInputStream dataInput = new BukkitObjectInputStream(inputStream)) {
                 return (ItemStack) dataInput.readObject();
             }

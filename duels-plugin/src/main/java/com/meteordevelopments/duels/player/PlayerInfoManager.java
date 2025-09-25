@@ -178,9 +178,9 @@ public class PlayerInfoManager implements Loadable {
     }
 
     /**
-     * Calls {@link #create(Player, boolean)} with excludeInventory defaulting to false.
-     *
-     * @see {@link #create(Player, boolean)}
+    * Calls {@link #create(Player, boolean)} with excludeInventory defaulting to false.
+    *
+    * @see #create(Player, boolean)
      */
     public void create(final Player player) {
         create(player, false);

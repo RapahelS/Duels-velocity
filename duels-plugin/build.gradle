@@ -17,7 +17,7 @@ dependencies {
     compileOnly 'org.jetbrains:annotations-java5:24.1.0'
     compileOnly 'org.projectlombok:lombok:1.18.38'
     annotationProcessor 'org.projectlombok:lombok:1.18.38'
-    implementation 'io.papermc.paper:paper-api:1.20.1-R0.1-SNAPSHOT'
+    implementation 'io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT'
     implementation 'commons-lang:commons-lang:2.6'
     implementation 'com.mojang:authlib:1.5.25'
     implementation 'me.clip:placeholderapi:2.11.6'
@@ -52,7 +52,8 @@ dependencies {
     implementation 'space.arim.morepaperlib:morepaperlib:0.4.4'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.19.2'
     implementation 'org.json:json:20250517'
-    implementation 'org.redisson:redisson:3.25.2'
+    implementation 'com.zaxxer:HikariCP:5.1.0'
+    implementation 'com.mysql:mysql-connector-j:9.2.0'
 }
 
 shadowJar {
@@ -71,14 +72,19 @@ shadowJar {
         include(dependency('io.papermc:.*'))
         include(dependency('org.json:.*'))
         include(dependency('space.arim.morepaperlib:.*'))
-        include(dependency('org.redisson:.*'))
+        include(dependency('com.zaxxer:HikariCP:.*'))
+        include(dependency('com.mysql:.*'))
+    }
+
+    mergeServiceFiles {
+        include 'META-INF/services/java.sql.Driver'
     }
 
     final String group = project.group.toString() + "." + parent.name.toLowerCase() + ".shaded."
     relocate 'com.fasterxml.jackson', 'com.meteordevelopments.duels.shaded.jackson'
     relocate 'io.papermc.lib', group + 'paperlib'
     relocate 'space.arim.morepaperlib', group + 'morepaperlib'
-    relocate 'org.redisson', group + 'redisson'
+    relocate 'com.zaxxer.hikari', group + 'hikari'
 }
 
 // To build Duels plugin jar, run './gradlew clean build'.
