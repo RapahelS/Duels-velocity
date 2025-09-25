@@ -113,6 +113,12 @@ public class ArenaImpl extends BaseButton implements Arena {
         this.disabled = event.isDisabled();
         arenaManager.saveArenas();
         refreshGui(isAvailable());
+        
+        // Sync arena state to network if enabled
+        if (plugin.getNetworkHandler() != null && plugin.getNetworkHandler().isNetworkEnabled()) {
+            plugin.getNetworkHandler().syncArena(this);
+        }
+        
         return true;
     }
 
@@ -150,6 +156,12 @@ public class ArenaImpl extends BaseButton implements Arena {
     public DuelMatch startMatch(final KitImpl kit, final Map<UUID, List<ItemStack>> items, final Settings settings, final Queue source) {
         this.match = settings.isPartyDuel() ? new PartyDuelMatch(plugin, this, kit, items, settings.getBet(), source) : new DuelMatch(plugin, this, kit, items, settings.getBet(), source);
         refreshGui(false);
+        
+        // Sync arena state to network if enabled (arena is now in use)
+        if (plugin.getNetworkHandler() != null && plugin.getNetworkHandler().isNetworkEnabled()) {
+            plugin.getNetworkHandler().syncArena(this);
+        }
+        
         return match;
     }
 
@@ -215,6 +227,11 @@ public class ArenaImpl extends BaseButton implements Arena {
         }
 
         refreshGui(true);
+        
+        // Sync arena state to network if enabled (arena is now available)
+        if (plugin.getNetworkHandler() != null && plugin.getNetworkHandler().isNetworkEnabled()) {
+            plugin.getNetworkHandler().syncArena(this);
+        }
     }
 
     public void startCountdown() {

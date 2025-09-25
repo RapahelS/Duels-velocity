@@ -75,8 +75,20 @@ public class DuelCommand extends BaseCommand {
         final Player target = Bukkit.getPlayerExact(args[0]);
 
         if (target == null) {
-            lang.sendMessage(sender, "ERROR.player.not-found", "name", args[0]);
-            return true;
+            // Check if network is enabled and try to find player on other servers
+            if (plugin.getNetworkHandler() != null && plugin.getNetworkHandler().isNetworkEnabled()) {
+                plugin.getNetworkHandler().findPlayerServer(args[0]).thenAccept(serverOpt -> {
+                    if (serverOpt.isPresent()) {
+                        lang.sendMessage(sender, "ERROR.player.on-different-server", "name", args[0], "server", serverOpt.get());
+                    } else {
+                        lang.sendMessage(sender, "ERROR.player.not-found", "name", args[0]);
+                    }
+                });
+                return true;
+            } else {
+                lang.sendMessage(sender, "ERROR.player.not-found", "name", args[0]);
+                return true;
+            }
         }
 
         final Party targetParty = partyManager.get(target);

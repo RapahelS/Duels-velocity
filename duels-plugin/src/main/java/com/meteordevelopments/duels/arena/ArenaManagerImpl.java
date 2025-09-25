@@ -52,6 +52,8 @@ public class ArenaManagerImpl implements Loadable, ArenaManager {
     private final Lang lang;
     private final File file;
 
+    private com.meteordevelopments.duels.network.NetworkHandler networkHandler;
+
     private final List<ArenaImpl> arenas = new ArrayList<>();
 
     @Getter
@@ -68,6 +70,8 @@ public class ArenaManagerImpl implements Loadable, ArenaManager {
 
     @Override
     public void handleLoad() throws IOException {
+        networkHandler = plugin.getNetworkHandler();
+        
         gui = new MultiPageGui<>(plugin, lang.getMessage("GUI.arena-selector.title"), config.getArenaSelectorRows(), arenas);
         gui.setSpaceFiller(Items.from(config.getArenaSelectorFillerType(), config.getArenaSelectorFillerData()));
         gui.setPrevButton(ItemBuilder.of(Material.PAPER).name(lang.getMessage("GUI.kit-selector.buttons.previous-page.name")).build());
@@ -158,6 +162,12 @@ public class ArenaManagerImpl implements Loadable, ArenaManager {
         ArenaImpl arena = new ArenaImpl(plugin, name);
         arenas.add(arena);
         saveArenas();
+        
+        // Sync arena to network if enabled
+        if (networkHandler != null && networkHandler.isNetworkEnabled()) {
+            networkHandler.syncArena(arena);
+        }
+        
         Bukkit.getPluginManager().callEvent(new ArenaCreateEvent(source, arena));
         gui.calculatePages();
         return true;

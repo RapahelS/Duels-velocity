@@ -35,6 +35,7 @@ ERROR:
   player:
     not-found: '{PREFIX} &c%name% is not online.'
     no-longer-online: '{PREFIX} &cThat player is no longer online.'
+    on-different-server: '{PREFIX} &c%name% is on a different server (%server%). Cross-server duels are not yet supported.'
   arena:
     not-found: '{PREFIX} &cNo arena exists with the name ''%name%''.'
     already-exists: '{PREFIX} &cAn arena named ''%name%'' already exists.'

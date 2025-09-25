@@ -76,6 +76,8 @@ public class QueueManager implements Loadable, DQueueManager, Listener {
     private VaultHook vault;
     private ScheduledTask queueTask;
 
+    private com.meteordevelopments.duels.network.NetworkHandler networkHandler;
+
     @Getter
     private MultiPageGui<DuelsPlugin> gui;
 
@@ -144,6 +146,7 @@ public class QueueManager implements Loadable, DQueueManager, Listener {
         this.combatLogX = plugin.getHookManager().getHook(CombatLogXHook.class);
         this.worldGuard = plugin.getHookManager().getHook(WorldGuardHook.class);
         this.vault = plugin.getHookManager().getHook(VaultHook.class);
+        this.networkHandler = plugin.getNetworkHandler();
         this.queueTask = plugin.doSyncRepeat(() -> {
             boolean update = false;
 
@@ -389,6 +392,11 @@ public class QueueManager implements Loadable, DQueueManager, Listener {
 
         queue.addPlayer(new QueueEntry(player, player.getLocation().clone(), duelzone));
 
+        // Add to network queue if enabled
+        if (networkHandler != null && networkHandler.isNetworkEnabled()) {
+            networkHandler.addToNetworkQueue(player, queue.getKit() != null ? queue.getKit().getName() : null, queue.getBet());
+        }
+
         final String kit = queue.getKit() != null ? queue.getKit().getName() : lang.getMessage("GENERAL.none");
         lang.sendMessage(player, "QUEUE.add", "kit", kit, "bet_amount", queue.getBet());
         return true;
@@ -397,6 +405,11 @@ public class QueueManager implements Loadable, DQueueManager, Listener {
     public Queue remove(final Player player) {
         for (final Queue queue : queues) {
             if (queue.removePlayer(player)) {
+                // Remove from network queue if enabled
+                if (networkHandler != null && networkHandler.isNetworkEnabled()) {
+                    networkHandler.removeFromNetworkQueue(player, queue.getKit() != null ? queue.getKit().getName() : null, queue.getBet());
+                }
+                
                 final QueueLeaveEvent event = new QueueLeaveEvent(player, queue);
                 Bukkit.getPluginManager().callEvent(event);
                 lang.sendMessage(player, "QUEUE.remove");

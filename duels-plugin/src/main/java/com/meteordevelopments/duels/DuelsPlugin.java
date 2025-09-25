@@ -508,6 +508,7 @@ public class DuelsPlugin extends JavaPlugin implements Duels, LogSource {
         new EnderpearlListener(this);
         new KitOptionsListener(this);
         new LingerPotionListener(this);
+        new com.meteordevelopments.duels.listeners.NetworkListener(this);
 
         sendMessage("&dSuccessfully loaded pre-listeners in &f[" + CC.getTimeDifferenceAndColor(start, System.currentTimeMillis()) + "&f]");
     }
