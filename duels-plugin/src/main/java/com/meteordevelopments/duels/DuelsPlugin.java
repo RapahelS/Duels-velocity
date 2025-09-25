@@ -114,6 +114,8 @@ public class DuelsPlugin extends JavaPlugin implements Duels, LogSource {
     private PartyManagerImpl partyManager;
     @Getter
     private ValidatorManager validatorManager;
+    @Getter
+    private com.meteordevelopments.duels.network.NetworkHandler networkHandler;
     private static final Logger LOGGER = Logger.getLogger("[Duels-Optimised]");
 
     @Override
@@ -455,6 +457,7 @@ public class DuelsPlugin extends JavaPlugin implements Duels, LogSource {
 
         loadAndTrack("config", () -> loadables.add(configuration = new Config(this)));
         loadAndTrack("lang", () -> loadables.add(lang = new Lang(this)));
+        loadAndTrack("network handler", () -> loadables.add(networkHandler = new com.meteordevelopments.duels.network.NetworkHandler(this)));
         loadAndTrack("user manager", () -> loadables.add(userManager = new UserManagerImpl(this)));
         loadAndTrack("gui listener", () -> loadables.add(guiListener = new GuiListener<>(this)));
         loadAndTrack("party manager", () -> loadables.add(partyManager = new PartyManagerImpl(this)));
@@ -505,6 +508,7 @@ public class DuelsPlugin extends JavaPlugin implements Duels, LogSource {
         new EnderpearlListener(this);
         new KitOptionsListener(this);
         new LingerPotionListener(this);
+        new com.meteordevelopments.duels.listeners.NetworkListener(this);
 
         sendMessage("&dSuccessfully loaded pre-listeners in &f[" + CC.getTimeDifferenceAndColor(start, System.currentTimeMillis()) + "&f]");
     }

@@ -35,6 +35,7 @@ ERROR:
   player:
     not-found: '{PREFIX} &c%name% is not online.'
     no-longer-online: '{PREFIX} &cThat player is no longer online.'
+    on-different-server: '{PREFIX} &c%name% is on a different server (%server%). Cross-server duels are not yet supported.'
   arena:
     not-found: '{PREFIX} &cNo arena exists with the name ''%name%''.'
     already-exists: '{PREFIX} &cAn arena named ''%name%'' already exists.'
@@ -317,6 +318,7 @@ COMMAND:
         - '&f/%command% lobby &e- &7Teleports to duel lobby.'
         - '&f/%command% playsound [name] &e- &7Plays the selected sound if defined in config.'
         - '&f/%command% reload <module> &e- &7Reloads the plugin or the specified module.'
+        - '&f/%command% network [status|reload] &e- &7Network management commands.'
         - '{HALF_LINE} &fExtra Commands {HALF_LINE}'
     create: '{PREFIX} &7Arena &e%name% &7was successfully created. To set spawnpoints for this arena, use the command &f/duels set %name% 1'
     delete: '{PREFIX} &7Arena &e%name% &7was successfully removed.'
@@ -361,6 +363,21 @@ COMMAND:
       - '&7Queue Signs: &f%queue_signs%'
       - '&7Duel lobby is located at &f%lobby%&7.'
       - '{LINE}'
+
+    network:
+      not-available: '{PREFIX} &cNetwork features are not available on this server.'
+      usage: '{PREFIX} &cUsage: /duels network [status|reload]'
+      status:
+        header: '{HALF_LINE} &fNetwork Status {HALF_LINE}'
+        enabled: '{PREFIX} &aNetwork mode enabled on server: &f%server%'
+        disabled: '{PREFIX} &cNetwork mode disabled - running in standalone mode'
+        redis-connected: '{PREFIX} &aRedis connection: &2Connected'
+        redis-disconnected: '{PREFIX} &cRedis connection: &4Disconnected'
+        footer: '{HALF_LINE} &fNetwork Status {HALF_LINE}'
+      reload:
+        start: '{PREFIX} &7Reloading network configuration...'
+        success: '{PREFIX} &aNetwork configuration reloaded successfully!'
+        failure: '{PREFIX} &cFailed to reload network: &f%error%'
 
   spectate:
     usage:

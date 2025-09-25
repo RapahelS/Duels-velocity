@@ -66,6 +66,8 @@ public class DuelManager implements Loadable {
     private WorldGuardHook worldGuard;
     private MyPetHook myPet;
 
+    private com.meteordevelopments.duels.network.NetworkHandler networkHandler;
+
     private ScheduledTask durationCheckTask;
 
     public DuelManager(final DuelsPlugin plugin) {
@@ -143,6 +145,7 @@ public class DuelManager implements Loadable {
         this.essentials = plugin.getHookManager().getHook(EssentialsHook.class);
         this.mcMMO = plugin.getHookManager().getHook(McMMOHook.class);
         this.myPet = plugin.getHookManager().getHook(MyPetHook.class);
+        this.networkHandler = plugin.getNetworkHandler();
 
         if (config.getMaxDuration() > 0) {
             this.durationCheckTask = plugin.doSyncRepeat(() -> {

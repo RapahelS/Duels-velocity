@@ -1,0 +1,47 @@
+# Example configuration for a primary duel server (duel1)
+# This server hosts most of the arenas and handles the majority of duels
+
+# Network configuration for cross-server support
+network:
+  # Enable cross-server functionality
+  enabled: true
+  
+  # Unique server name - must match what's configured in Velocity
+  server-name: 'duel1'
+  
+  # Redis connection details - all servers must use the same Redis instance
+  redis:
+    host: 'localhost'
+    port: 6379
+    password: ''
+    database: 0
+  
+  # Enable debug mode for troubleshooting (disable in production)
+  debug-mode: false
+
+# Regular Duels configuration continues below...
+# All other settings remain the same as single-server setup
+
+# Recommended settings for duel servers:
+teleport-to-last-location: true
+teleport-delay: 3
+prevent-inventory-drop: true
+prevent-inventory-pickup: true
+
+# Spectator settings
+spec-require-cleared-inventory: false
+spec-use-spectator-gamemode: true
+spec-add-invisibility-effect: true
+
+# PvP settings
+disable-enderpearl-in-endgame: true
+disable-movement-in-endgame: false
+
+# Match settings
+max-duration: 600  # 10 minutes max per duel
+clear-items-after-match: true
+spawn-firework: true
+
+# Economy settings (if using Vault)
+money-betting-enabled: true
+money-betting-use-permission: true

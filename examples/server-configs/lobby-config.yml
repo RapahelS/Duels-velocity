@@ -1,0 +1,41 @@
+# Example configuration for a lobby server
+# This server allows players to join queues but doesn't host duels
+
+# Network configuration for cross-server support
+network:
+  # Enable cross-server functionality  
+  enabled: true
+  
+  # Unique server name - must match what's configured in Velocity
+  server-name: 'lobby'
+  
+  # Redis connection details - same as duel servers
+  redis:
+    host: 'localhost'
+    port: 6379
+    password: ''
+    database: 0
+  
+  # Enable debug mode for troubleshooting (disable in production)
+  debug-mode: false
+
+# Lobby servers typically don't need arenas
+# Players can join queues here and will be transferred to duel servers
+
+# Recommended settings for lobby servers:
+teleport-to-last-location: false
+teleport-delay: 0
+prevent-inventory-drop: false
+prevent-inventory-pickup: false
+
+# Disable features not needed on lobby
+spec-require-cleared-inventory: true
+money-betting-enabled: false
+max-duration: 0  # No matches on lobby server
+
+# Queue settings - allow queuing from lobby
+requires-cleared-inventory: false
+prevent-creative-mode: true
+
+# Note: Create queues but no arenas on lobby servers
+# Players will join queues here and be transferred to duel servers for matches

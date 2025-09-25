@@ -1,0 +1,12 @@
+{
+  "id": "duels-velocity",
+  "name": "Duels Velocity",
+  "version": "@VERSION@",
+  "description": "Velocity proxy plugin for cross-server Duels support",
+  "authors": [
+    "Realized",
+    "DUMBO", 
+    "RaphaelS"
+  ],
+  "main": "com.meteordevelopments.duels.velocity.DuelsVelocityPlugin"
+}
