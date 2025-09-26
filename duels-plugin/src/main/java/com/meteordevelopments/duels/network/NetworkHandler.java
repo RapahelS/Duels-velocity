@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.meteordevelopments.duels.DuelsPlugin;
 import com.meteordevelopments.duels.arena.ArenaImpl;
+import com.meteordevelopments.duels.arena.ArenaManagerImpl;
 import com.meteordevelopments.duels.common.database.DatabaseManager;
 import com.meteordevelopments.duels.common.database.DatabaseSettings;
 import com.meteordevelopments.duels.common.database.NetworkEvent;
@@ -76,6 +77,7 @@ public class NetworkHandler implements Loadable {
     private DuelManager duelManager;
     private KitManagerImpl kitManager;
     private PartyManagerImpl partyManager;
+    private ArenaManagerImpl arenaManager;
 
     private DatabaseManager databaseManager;
     private final List<ScheduledTask> scheduledTasks = new ArrayList<>();
@@ -168,6 +170,104 @@ public class NetworkHandler implements Loadable {
         if (partyManager == null) {
             partyManager = plugin.getPartyManager();
         }
+        if (arenaManager == null && plugin.getArenaManager() instanceof ArenaManagerImpl impl) {
+            arenaManager = impl;
+        }
+    }
+
+    private boolean hasLocalAvailableArena(String kitName) {
+        refreshManagerReferences();
+        if (arenaManager == null) {
+            return false;
+        }
+
+        KitImpl kit = null;
+        if (kitName != null && kitManager != null) {
+            kit = kitManager.get(kitName);
+        }
+
+        for (ArenaImpl arena : arenaManager.getArenasImpl()) {
+            if (arena == null || !arena.isAvailable()) {
+                continue;
+            }
+            if (arenaManager.isSelectable(kit, arena)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean hasRemoteAvailableArena(String server, String kitName) {
+        if (server == null || server.isEmpty()) {
+            return false;
+        }
+
+        return networkArenas.values().stream()
+            .filter(arena -> server.equalsIgnoreCase(arena.getServerName()))
+            .anyMatch(arena -> isRemoteArenaSuitable(arena, kitName));
+    }
+
+    private boolean isRemoteArenaSuitable(NetworkArena arena, String kitName) {
+        if (arena == null || !arena.isAvailable()) {
+            return false;
+        }
+
+        if (kitName == null || kitName.isEmpty()) {
+            return true;
+        }
+
+        if (arena.isBoundless()) {
+            return true;
+        }
+
+        return arena.isBound(kitName);
+    }
+
+    private String findAnyRemoteArenaServer(String kitName) {
+        return networkArenas.values().stream()
+            .filter(arena -> isRemoteArenaSuitable(arena, kitName))
+            .map(NetworkArena::getServerName)
+            .findFirst()
+            .orElse(null);
+    }
+
+    private String selectHostServer(String preferredHost, String secondaryHost, String kitName) {
+        if (preferredHost != null && !preferredHost.isBlank()) {
+            if (preferredHost.equalsIgnoreCase(serverName)) {
+                if (hasLocalAvailableArena(kitName)) {
+                    return preferredHost;
+                }
+            } else if (hasRemoteAvailableArena(preferredHost, kitName)) {
+                return preferredHost;
+            }
+        }
+
+        if (secondaryHost != null && !secondaryHost.isBlank() && !secondaryHost.equalsIgnoreCase(preferredHost)) {
+            if (secondaryHost.equalsIgnoreCase(serverName)) {
+                if (hasLocalAvailableArena(kitName)) {
+                    return secondaryHost;
+                }
+            } else if (hasRemoteAvailableArena(secondaryHost, kitName)) {
+                return secondaryHost;
+            }
+        }
+
+        String fallback = findAnyRemoteArenaServer(kitName);
+        if (fallback != null) {
+            return fallback;
+        }
+
+        return serverName;
+    }
+
+    private boolean hasAnyArenaAvailable(String kitName) {
+        if (hasLocalAvailableArena(kitName)) {
+            return true;
+        }
+
+        return networkArenas.values().stream()
+            .anyMatch(arena -> isRemoteArenaSuitable(arena, kitName));
     }
 
     private void initializeCaches() {
@@ -797,24 +897,32 @@ public class NetworkHandler implements Loadable {
             return;
         }
 
-        Settings baseSettings = settings.lightCopy();
-        baseSettings.setRemoteTargetName(targetName);
-        baseSettings.getCache().computeIfAbsent(challenger.getUniqueId(), uuid ->
-                new CachedInfo(challenger.getLocation() != null ? challenger.getLocation().clone() : null, null));
+    Settings baseSettings = settings.lightCopy();
+    baseSettings.setRemoteTargetName(targetName);
+    baseSettings.getCache().computeIfAbsent(challenger.getUniqueId(), uuid ->
+        new CachedInfo(challenger.getLocation() != null ? challenger.getLocation().clone() : null, null));
 
-        CachedInfo cachedInfo = cloneCachedInfo(baseSettings.getCache().get(challenger.getUniqueId()));
-        UUID requestId = UUID.randomUUID();
+    String kitName = baseSettings.getKit() != null ? baseSettings.getKit().getName() : null;
+    if (!hasAnyArenaAvailable(kitName)) {
+        lang.sendMessage(challenger, "ERROR.queue.no-arena-available");
+        return;
+    }
 
-        PendingLocalMatch localMatch = new PendingLocalMatch(requestId, null, challenger, cachedInfo,
-                baseSettings, baseSettings.getKit() != null ? baseSettings.getKit().getName() : null,
-                baseSettings.getBet(), System.currentTimeMillis());
+    String hostServer = selectHostServer(serverName, targetServer, kitName);
 
-        pendingLocalMatches.put(requestId, localMatch);
+    CachedInfo cachedInfo = cloneCachedInfo(baseSettings.getCache().get(challenger.getUniqueId()));
+    UUID requestId = UUID.randomUUID();
+
+    PendingLocalMatch localMatch = new PendingLocalMatch(requestId, null, challenger, cachedInfo,
+        baseSettings, kitName, baseSettings.getBet(), System.currentTimeMillis(), hostServer,
+        null, null);
+
+    pendingLocalMatches.put(requestId, localMatch);
 
         ObjectNode payload = mapper.createObjectNode();
         payload.put("action", "challenge");
         payload.put("requestId", requestId.toString());
-        payload.put("hostServer", serverName);
+    payload.put("hostServer", hostServer);
         payload.put("sourceServer", serverName);
         payload.put("targetServer", targetServer);
         payload.put("challengerId", challenger.getUniqueId().toString());
@@ -1009,7 +1117,18 @@ public class NetworkHandler implements Loadable {
                 continue;
             }
 
-            PendingLocalMatch localMatch = pendingLocalMatches.remove(matchId);
+            UUID requestId = parseUuid(payload.path("requestId").asText(null));
+            if (requestId == null) {
+                requestId = matchId;
+            }
+
+            PendingLocalMatch localMatch = null;
+            if (requestId != null) {
+                localMatch = pendingLocalMatches.remove(requestId);
+            }
+            if (localMatch == null && !Objects.equals(requestId, matchId)) {
+                localMatch = pendingLocalMatches.remove(matchId);
+            }
             if (localMatch == null && config.isNetworkDebugMode()) {
                 plugin.info("Received proxy-initiated match start " + matchId);
             }
@@ -1041,12 +1160,19 @@ public class NetworkHandler implements Loadable {
                 }
             }
 
-            String kitName = payload.has("kitName") && !payload.get("kitName").isNull()
-                    ? payload.get("kitName").asText() : null;
-            int bet = payload.path("bet").asInt(localMatch.bet());
+        String kitName = payload.has("kitName") && !payload.get("kitName").isNull()
+            ? payload.get("kitName").asText() : (localMatch != null ? localMatch.kitName() : null);
+        int bet = payload.path("bet").asInt(localMatch != null ? localMatch.bet() : 0);
 
-        PendingMatchStart pending = new PendingMatchStart(matchId, localMatch, teamA, teamB,
-            kitName, bet, CROSS_SERVER_MATCH_TIMEOUT_SECONDS);
+        String arenaName = payload.has("arenaName") && !payload.get("arenaName").isNull()
+            ? payload.get("arenaName").asText()
+            : (localMatch != null ? localMatch.selectedArenaName() : null);
+        String arenaServerRaw = payload.path("arenaServer").asText(
+            localMatch != null ? localMatch.selectedArenaServer() : null);
+        String arenaServer = arenaServerRaw != null && !arenaServerRaw.isBlank() ? arenaServerRaw : null;
+
+        PendingMatchStart pending = new PendingMatchStart(matchId, requestId, localMatch, teamA, teamB,
+            kitName, bet, CROSS_SERVER_MATCH_TIMEOUT_SECONDS, arenaName, arenaServer);
 
             pendingMatchStarts.put(matchId, pending);
 
@@ -1210,6 +1336,10 @@ public class NetworkHandler implements Loadable {
             }
         }
 
+        if (settings.getArena() == null && pending.arenaServer() != null && pending.arenaName() != null) {
+            settings.selectRemoteArena(pending.arenaServer(), pending.arenaName());
+        }
+
         if (settings.getKit() == null && pending.kitName() != null && kitManager != null) {
             KitImpl kit = kitManager.get(pending.kitName());
             if (kit != null) {
@@ -1266,9 +1396,13 @@ public class NetworkHandler implements Loadable {
         private final String kitName;
         private final int bet;
         private final long createdAt;
+        private final String hostServer;
+        private final String selectedArenaName;
+        private final String selectedArenaServer;
 
         PendingLocalMatch(UUID requestId, Queue queue, Player localPlayer, CachedInfo cachedInfo,
-                           Settings baseSettings, String kitName, int bet, long createdAt) {
+                           Settings baseSettings, String kitName, int bet, long createdAt,
+                           String hostServer, String selectedArenaName, String selectedArenaServer) {
             this.requestId = requestId;
             this.queue = queue;
             this.localPlayer = localPlayer;
@@ -1277,6 +1411,9 @@ public class NetworkHandler implements Loadable {
             this.kitName = kitName;
             this.bet = bet;
             this.createdAt = createdAt;
+            this.hostServer = hostServer;
+            this.selectedArenaName = selectedArenaName;
+            this.selectedArenaServer = selectedArenaServer;
         }
 
         UUID requestId() {
@@ -1307,6 +1444,18 @@ public class NetworkHandler implements Loadable {
             return createdAt;
         }
 
+        String hostServer() {
+            return hostServer;
+        }
+
+        String selectedArenaName() {
+            return selectedArenaName;
+        }
+
+        String selectedArenaServer() {
+            return selectedArenaServer;
+        }
+
         Settings copySettings() {
             Settings copy = baseSettings.lightCopy();
             if (cachedInfo != null && localPlayer != null) {
@@ -1320,6 +1469,7 @@ public class NetworkHandler implements Loadable {
 
     private static class PendingMatchStart {
         private final UUID matchId;
+        private final UUID requestId;
         private final PendingLocalMatch localMatch;
         private final List<UUID> teamA;
         private final List<UUID> teamB;
@@ -1327,10 +1477,13 @@ public class NetworkHandler implements Loadable {
         private final int bet;
         private final long createdAt;
         private final long expiresAt;
+        private final String arenaName;
+        private final String arenaServer;
 
-        PendingMatchStart(UUID matchId, PendingLocalMatch localMatch, List<UUID> teamA, List<UUID> teamB,
-                          String kitName, int bet, int timeoutSeconds) {
+        PendingMatchStart(UUID matchId, UUID requestId, PendingLocalMatch localMatch, List<UUID> teamA, List<UUID> teamB,
+                          String kitName, int bet, int timeoutSeconds, String arenaName, String arenaServer) {
             this.matchId = matchId;
+            this.requestId = requestId;
             this.localMatch = localMatch;
             this.teamA = new ArrayList<>(teamA);
             this.teamB = new ArrayList<>(teamB);
@@ -1338,10 +1491,16 @@ public class NetworkHandler implements Loadable {
             this.bet = bet;
             this.createdAt = System.currentTimeMillis();
             this.expiresAt = this.createdAt + Math.max(5, timeoutSeconds) * 1000L;
+            this.arenaName = arenaName;
+            this.arenaServer = arenaServer;
         }
 
         UUID matchId() {
             return matchId;
+        }
+
+        UUID requestId() {
+            return requestId;
         }
 
         PendingLocalMatch localMatch() {
@@ -1370,6 +1529,14 @@ public class NetworkHandler implements Loadable {
 
         long expiresAt() {
             return expiresAt;
+        }
+
+        String arenaName() {
+            return arenaName;
+        }
+
+        String arenaServer() {
+            return arenaServer;
         }
     }
 
@@ -1842,6 +2009,15 @@ public class NetworkHandler implements Loadable {
             baseSettings.getCache().put(localPlayer.getUniqueId(), info);
         }
 
+        String resolvedKitName = targetKit != null ? targetKit.getName() : remotePlayer.getKitName();
+
+        if (!hasAnyArenaAvailable(resolvedKitName)) {
+            lang.sendMessage(localPlayer, "ERROR.queue.no-arena-available");
+            return;
+        }
+
+        String hostServer = selectHostServer(serverName, remotePlayer.getServerName(), resolvedKitName);
+
         UUID requestId = UUID.randomUUID();
 
         if (!queue.removeEntrySilently(localEntry)) {
@@ -1851,13 +2027,14 @@ public class NetworkHandler implements Loadable {
         removeFromNetworkQueue(localPlayer, queueKit != null ? queueKit.getName() : null, queue.getBet());
 
         PendingLocalMatch localMatch = new PendingLocalMatch(requestId, queue, localPlayer, info,
-                baseSettings, queueKit != null ? queueKit.getName() : null, queue.getBet(), System.currentTimeMillis());
+                baseSettings, queueKit != null ? queueKit.getName() : null, queue.getBet(), System.currentTimeMillis(),
+                hostServer, null, null);
 
         pendingLocalMatches.put(requestId, localMatch);
 
         ObjectNode payload = mapper.createObjectNode();
         payload.put("requestId", requestId.toString());
-        payload.put("hostServer", serverName);
+        payload.put("hostServer", hostServer);
         payload.put("remoteServer", remotePlayer.getServerName());
         payload.put("bet", remotePlayer.getBet());
         payload.put("timestamp", System.currentTimeMillis());

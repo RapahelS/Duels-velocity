@@ -28,8 +28,13 @@ public class Settings {
     @Getter
     private KitImpl kit;
     @Getter
-    @Setter
     private ArenaImpl arena;
+    @Getter
+    @Setter
+    private String remoteArenaServer;
+    @Getter
+    @Setter
+    private String remoteArenaName;
     @Getter
     @Setter
     private int bet;
@@ -65,6 +70,8 @@ public class Settings {
         targetParty = null;
         kit = null;
         arena = null;
+        remoteArenaServer = null;
+        remoteArenaName = null;
         bet = 0;
         itemBetting = false;
         ownInventory = !plugin.getConfiguration().isKitSelectingEnabled();
@@ -84,6 +91,14 @@ public class Settings {
 
         this.target = target.getUniqueId();
         this.remoteTargetName = target.getName();
+    }
+
+    public void setArena(final ArenaImpl arena) {
+        this.arena = arena;
+        if (arena != null) {
+            this.remoteArenaServer = null;
+            this.remoteArenaName = null;
+        }
     }
 
     public void updateGui(final Player player) {
@@ -163,6 +178,16 @@ public class Settings {
         }
     }
 
+    public void selectRemoteArena(String server, String arenaName) {
+        this.arena = null;
+        this.remoteArenaServer = server;
+        this.remoteArenaName = arenaName;
+    }
+
+    public boolean hasRemoteArenaSelection() {
+        return remoteArenaServer != null && remoteArenaName != null;
+    }
+
     // Don't copy the gui since it won't be required to start a match
     public Settings lightCopy() {
         final Settings copy = new Settings(plugin);
@@ -172,6 +197,8 @@ public class Settings {
         copy.targetParty = targetParty;
         copy.kit = kit;
         copy.arena = arena;
+        copy.remoteArenaServer = remoteArenaServer;
+        copy.remoteArenaName = remoteArenaName;
         copy.bet = bet;
         copy.itemBetting = itemBetting;
         copy.ownInventory = ownInventory;

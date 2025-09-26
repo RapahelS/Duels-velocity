@@ -451,6 +451,14 @@ public class NetworkManager {
         }
 
         Player player = playerOpt.get();
+
+        String currentServer = player.getCurrentServer()
+            .map(registeredServer -> registeredServer.getServerInfo().getName())
+            .orElse(null);
+        if (currentServer != null && currentServer.equalsIgnoreCase(targetServer)) {
+            return CompletableFuture.completedFuture(true);
+        }
+
         Optional<RegisteredServer> serverOpt = plugin.getServer().getServer(targetServer);
         if (serverOpt.isEmpty()) {
             return CompletableFuture.completedFuture(false);
@@ -465,7 +473,7 @@ public class NetworkManager {
                     return true;
                 } else {
                     plugin.getLogger().warn("Failed to transfer player {} to server {}: {}",
-                        player.getUsername(), targetServer, result.getReasonComponent());
+                        player.getUsername(), targetServer, result.getReasonComponent().orElse(null));
                     return false;
                 }
             });
